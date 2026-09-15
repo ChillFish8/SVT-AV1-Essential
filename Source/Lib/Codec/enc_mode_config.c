@@ -2321,7 +2321,8 @@ void svt_aom_sig_deriv_pre_analysis_scs(SequenceControlSet *scs) {
     balancing_ctrls->wide_deltaq_clamp           = balancing_ctrls->enabled;
     balancing_ctrls->flat_r0_weight_lowhier      = balancing_ctrls->enabled;
     balancing_ctrls->tpl_dep_cost_unscaled       = balancing_ctrls->enabled;
-    balancing_ctrls->force_r0_qps_qpm_all_layers = balancing_ctrls->enabled;
+    balancing_ctrls->force_r0_qps_all_layers     = balancing_ctrls->enabled;
+    balancing_ctrls->force_beta_all_layers       = 0;
     balancing_ctrls->reshape_scene_change_th     = balancing_ctrls->enabled;
 }
 /*

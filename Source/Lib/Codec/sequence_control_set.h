@@ -73,8 +73,12 @@ typedef struct BalancingCtrls {
     uint8_t flat_r0_weight_lowhier;
     // 0: OFF; 1: drop the TPL dep cost scale from TPL_DEP_COST_SCALE_LOG2 to 1
     uint8_t tpl_dep_cost_unscaled;
-    // 0: OFF; 1: allow r0-based QPS/QPM on every temporal layer
-    uint8_t force_r0_qps_qpm_all_layers;
+    // 0: OFF; 1: drive frame QP and delta-q signalling from r0 at every layer
+    uint8_t force_r0_qps_all_layers;
+    // 0: OFF; 1: also apply the per-SB beta loop beyond the dampening layer
+    // Off even under balancing - Essential caps this at hierarchical_levels - 2,
+    // which is where balancing already damps r0, so widening double-counts
+    uint8_t force_beta_all_layers;
     // 0: OFF; 1: vary the scene change threshold with the intra period position
     uint8_t reshape_scene_change_th;
 } BalancingCtrls;
