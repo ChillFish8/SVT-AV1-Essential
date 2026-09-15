@@ -3989,6 +3989,18 @@ static void set_param_based_on_input(SequenceControlSet *scs)
         scs->bot_padding   += 4;
     }
 
+    if (scs->static_config.balancing_r0_dampening_layer == INT8_MIN) {
+        if (scs->static_config.balancing_q_bias)
+            scs->static_config.balancing_r0_dampening_layer = -2;
+        else
+            scs->static_config.balancing_r0_dampening_layer = 1;
+    }
+
+    // Balancing replaces these, it is not meant to stack with them
+    if (scs->static_config.balancing_q_bias && scs->static_config.qp_scale_compress_strength)
+        SVT_WARN("balancing-q-bias is intended to replace qp-scale-compress-strength, not to be used with it\n");
+    if (scs->static_config.balancing_q_bias && scs->static_config.luminance_qp_bias)
+        SVT_WARN("balancing-q-bias is intended to replace luminance-qp-bias, not to be used with it\n");
 
     scs->static_config.enable_overlays = !scs->static_config.enable_tf ||
         (scs->static_config.rate_control_mode != SVT_AV1_RC_MODE_CQP_OR_CRF) ?
@@ -4570,6 +4582,11 @@ static void copy_api_from_app(SequenceControlSet *scs, EbSvtAv1EncConfiguration 
 
     // QP scaling compression
     scs->static_config.qp_scale_compress_strength = config_struct->qp_scale_compress_strength;
+
+    // Balancing model
+    scs->static_config.balancing_q_bias             = config_struct->balancing_q_bias;
+    scs->static_config.balancing_r0_dampening_layer = config_struct->balancing_r0_dampening_layer;
+    scs->static_config.optimize_b_mode              = config_struct->optimize_b_mode;
 
     // Adaptive film grain
     scs->static_config.adaptive_film_grain = config_struct->adaptive_film_grain;

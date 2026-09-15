@@ -217,6 +217,9 @@
 #define AVIF_TOKEN "--avif"
 #define RTC_TOKEN "--rtc"
 #define QP_SCALE_COMPRESS_STRENGTH_TOKEN "--qp-scale-compress-strength"
+#define BALANCING_Q_BIAS_TOKEN "--balancing-q-bias"
+#define BALANCING_R0_DAMPENING_LAYER_TOKEN "--balancing-r0-dampening-layer"
+#define OPTIMIZE_B_MODE_TOKEN "--optimize-b-mode"
 #define ADAPTIVE_FILM_GRAIN_TOKEN "--adaptive-film-grain"
 #define MAX_TX_SIZE_TOKEN "--max-tx-size"
 #define AC_BIAS_TOKEN "--ac-bias"
@@ -813,6 +816,13 @@ ConfigDescription config_entry_rc[] = {
     // QP scale compress strength
     {QP_SCALE_COMPRESS_STRENGTH_TOKEN,
      "QP scale compress strength, default is 1 [0-8]"},
+    // Balancing model
+    {BALANCING_Q_BIAS_TOKEN,
+     "Replaces the QP allocation with the balancing model, default is 0 [0-1]"},
+    {BALANCING_R0_DAMPENING_LAYER_TOKEN,
+     "Temporal layer at which r0 switches to its fourth root, default is derived from --balancing-q-bias [-8 to 8]"},
+    {OPTIMIZE_B_MODE_TOKEN,
+     "Extra pixel-domain coefficient refinement before the trellis, default is 0 [0-1]"},
     // Zones
     {ZONES_TOKEN, "CRF/CQP zones, format: start,end,quality;start,end,quality;..., default is no zones"},
     // Termination
@@ -1117,6 +1127,11 @@ ConfigDescription fconfig_entry_rc[] = {
     {SHARPNESS_TOKEN, "Bias towards decreased/increased sharpness, default is 1 [-7 to 7]"},
     // QP scale compress strength
     {QP_SCALE_COMPRESS_STRENGTH_TOKEN, "QP scale compress strength, default is 1 [0-8]"},
+    // Balancing model
+    {BALANCING_Q_BIAS_TOKEN, "Replaces the QP allocation with the balancing model, default is 0 [0-1]"},
+    {BALANCING_R0_DAMPENING_LAYER_TOKEN,
+     "Temporal layer at which r0 switches to its fourth root, default is derived from --balancing-q-bias [-8 to 8]"},
+    {OPTIMIZE_B_MODE_TOKEN, "Extra pixel-domain coefficient refinement before the trellis, default is 0 [0-1]"},
     // Zones
     {ZONES_TOKEN, "CRF/CQP zones, format: start,end,quality;start,end,quality;..., default is no zones"},
     // Noise normalization strength
@@ -1537,6 +1552,11 @@ ConfigEntry config_entry[] = {
 
     // QP scale compression
     {QP_SCALE_COMPRESS_STRENGTH_TOKEN, "QpScaleCompressStrength", set_cfg_generic_token},
+
+    // Balancing model
+    {BALANCING_Q_BIAS_TOKEN, "BalancingQBias", set_cfg_generic_token},
+    {BALANCING_R0_DAMPENING_LAYER_TOKEN, "BalancingR0DampeningLayer", set_cfg_generic_token},
+    {OPTIMIZE_B_MODE_TOKEN, "OptimizeBMode", set_cfg_generic_token},
 
     // Adaptive film grain
     {ADAPTIVE_FILM_GRAIN_TOKEN, "AdaptiveFilmGrain", set_cfg_generic_token},

@@ -725,8 +725,10 @@ static void tf_set_me_hme_params_oq(MeContext *me_ctx, PictureParentControlSet *
  * minigops produced by a reduced hierarchical level
  ******************************************************/
 uint8_t svt_aom_get_is_base(const PictureParentControlSet *ppcs, const SequenceControlSet *scs) {
-    UNUSED(scs);
-    return ppcs->temporal_layer_index == 0;
+    if (!scs->balancing_ctrls.enabled)
+        return ppcs->temporal_layer_index == 0;
+    return (ppcs->temporal_layer_index + scs->static_config.hierarchical_levels - ppcs->hierarchical_levels) == 0 ||
+        ppcs->slice_type == I_SLICE;
 }
 /******************************************************
 * Derive ME Settings for OQ
@@ -2307,6 +2309,20 @@ void svt_aom_sig_deriv_pre_analysis_scs(SequenceControlSet *scs) {
         scs->seq_header.cdef_level = (uint8_t)(scs->static_config.cdef_level > 0);
 
     scs->seq_header.enable_warped_motion = 1;
+
+    // Balancing replaces the QP allocation completely, so every behaviour
+    // it couples is named separately to keep them individually bisectable
+    BalancingCtrls *balancing_ctrls              = &scs->balancing_ctrls;
+    balancing_ctrls->enabled                     = scs->static_config.balancing_q_bias;
+    balancing_ctrls->r0_dampening_layer          = scs->static_config.balancing_r0_dampening_layer;
+    balancing_ctrls->reshape_r0                  = balancing_ctrls->enabled;
+    balancing_ctrls->reshape_beta                = balancing_ctrls->enabled;
+    balancing_ctrls->soft_deltaq_map             = balancing_ctrls->enabled;
+    balancing_ctrls->wide_deltaq_clamp           = balancing_ctrls->enabled;
+    balancing_ctrls->flat_r0_weight_lowhier      = balancing_ctrls->enabled;
+    balancing_ctrls->tpl_dep_cost_unscaled       = balancing_ctrls->enabled;
+    balancing_ctrls->force_r0_qps_qpm_all_layers = balancing_ctrls->enabled;
+    balancing_ctrls->reshape_scene_change_th     = balancing_ctrls->enabled;
 }
 /*
 * check if the reference picture is in same frame size
