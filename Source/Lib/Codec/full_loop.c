@@ -1602,6 +1602,13 @@ static void slow_optimize_b(PictureControlSet *pcs, ModeDecisionContext *ctx, in
                             int32_t *recon_coeff, TxSize txsize, TxType tx_type, int32_t plane, uint16_t *eob,
                             const ScanOrder *scan_order, const int16_t *zbin_ptr, const OptimizeBInput *ob,
                             int16_t txb_skip_context, int16_t dc_sign_context, uint32_t lambda) {
+    // Budget of zbin trials for this tx, so large blocks are not walked exhaustively
+    uint16_t zbin_available = av1_get_max_eob(txsize) >> 5;
+    // 4x4 gets no budget at all. The quantizer leaves eob on the last non-zero coefficient, so
+    // with nothing to try the walk below cannot change anything, and the rate and recon it
+    // starts from would be computed for nothing
+    if (zbin_available == 0)
+        return;
     // Same shift av1_get_tx_scale_tab gives QuantParam, needed by the zbin comparison
     const int16_t log_scale = (int16_t)av1_get_tx_scale_tab[txsize];
     // Hadamard of the source block, which no trial can change, hoisted out of the whole loop
@@ -1612,8 +1619,6 @@ static void slow_optimize_b(PictureControlSet *pcs, ModeDecisionContext *ctx, in
         pcs, ctx, quant_coeff, txsize, tx_type, plane, *eob, ob->cand_bf, txb_skip_context, dc_sign_context);
     uint64_t current_dist = slow_optimize_b_calculate_dist(
         pcs, ctx, recon_coeff, txsize, tx_type, plane, *eob, ob, psy_src_coeffs);
-    // Budget of zbin trials for this tx, so large blocks are not walked exhaustively
-    uint16_t       zbin_available    = av1_get_max_eob(txsize) >> 5;
     const uint16_t eob_compare_limit = AOMMAX(av1_get_max_eob(txsize) >> 3, 1);
     for (int32_t i = (int32_t)(*eob) - 1; i >= 0; i--) {
         const int16_t rc = scan_order->scan[i];

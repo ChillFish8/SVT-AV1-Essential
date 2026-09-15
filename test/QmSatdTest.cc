@@ -259,6 +259,121 @@ TEST(QmSatdTest, AVX512Int32Min) {
 #endif  // ARCH_X86_64
 
 /**
+ * @brief Unit test for qm_satd_tiled_no_rshift
+ *
+ * Test strategy:
+ * The tiled kernel sums the weighted SATD of a run of hadamard blocks laid
+ * back to back, re-using one quantisation matrix for every block. It is
+ * specified for coefficient differences below 2^20, which lets the SIMD
+ * kernels stay in 32-bit lanes inside a block. Check it against a per-block
+ * sum of the reference, at both block sizes, across block counts up to the
+ * 64x64 transform, with and without a matrix, and at the largest difference
+ * the contract allows so the 32-bit lanes are pushed to their limit.
+ *
+ * Expected result:
+ * C, AVX2 and AVX512 all match the per-block reference sum exactly.
+ */
+
+typedef uint64_t (*QmSatdTiledFn)(const TranLow *src_coeffs,
+                                  const TranLow *recon_coeffs,
+                                  const QmVal *satd_bias_qmatrix,
+                                  const uint16_t block_size,
+                                  const uint16_t n_blocks);
+
+static const uint16_t kTiledBlockSizes[] = {16, 64};
+// Every count a transform can produce for either block size, plus the odd
+// counts that leave a partial widening group
+static const uint16_t kTiledBlockCounts[] = {1, 2, 3, 4, 5, 8, 16, 64};
+
+static const int32_t kTiledMaxDiff = (1 << 20) - 1;
+
+static uint64_t qm_satd_tiled_ref(const TranLow *src_coeffs,
+                                  const TranLow *recon_coeffs,
+                                  const QmVal *satd_bias_qmatrix,
+                                  const uint16_t block_size,
+                                  const uint16_t n_blocks) {
+    uint64_t total = 0;
+    for (uint16_t b = 0; b < n_blocks; ++b)
+        total += qm_satd_ref(src_coeffs + b * block_size,
+                             recon_coeffs + b * block_size,
+                             satd_bias_qmatrix, block_size);
+    return total;
+}
+
+static void run_tiled(QmSatdTiledFn tst_fn, bool use_qmatrix, bool max_diff,
+                      int iterations) {
+    // Either side of the contract limit, so the difference never exceeds it
+    SVTRandom coeff_rnd(-(kTiledMaxDiff / 2), kTiledMaxDiff / 2);
+    SVTRandom qm_rnd(1, 255);
+
+    static TranLow src_coeffs[MAX_TX_SQUARE];
+    static TranLow recon_coeffs[MAX_TX_SQUARE];
+    QmVal qmatrix[64];
+
+    for (const uint16_t block_size : kTiledBlockSizes) {
+        for (const uint16_t n_blocks : kTiledBlockCounts) {
+            for (int it = 0; it < iterations; ++it) {
+                const uint32_t total = (uint32_t)block_size * n_blocks;
+                for (uint32_t i = 0; i < total; ++i) {
+                    if (max_diff) {
+                        // Alternate the sign so both directions of the
+                        // difference are taken at the limit
+                        src_coeffs[i] = (i & 1) ? kTiledMaxDiff : 0;
+                        recon_coeffs[i] = (i & 1) ? 0 : kTiledMaxDiff;
+                    } else {
+                        src_coeffs[i] = (TranLow)coeff_rnd.random();
+                        recon_coeffs[i] = (TranLow)coeff_rnd.random();
+                    }
+                }
+                for (uint16_t i = 0; i < block_size; ++i)
+                    qmatrix[i] = (QmVal)(max_diff ? 255 : qm_rnd.random());
+
+                const QmVal *qm = use_qmatrix ? qmatrix : nullptr;
+                const uint64_t ref = qm_satd_tiled_ref(
+                    src_coeffs, recon_coeffs, qm, block_size, n_blocks);
+                ASSERT_EQ(ref,
+                          qm_satd_tiled_no_rshift_c(src_coeffs, recon_coeffs,
+                                                    qm, block_size, n_blocks))
+                    << "C kernel disagrees with reference at block size "
+                    << block_size << " blocks " << n_blocks;
+                if (tst_fn != nullptr)
+                    ASSERT_EQ(ref, tst_fn(src_coeffs, recon_coeffs, qm,
+                                          block_size, n_blocks))
+                        << "mismatch at block size " << block_size
+                        << " blocks " << n_blocks << " iteration " << it;
+            }
+        }
+    }
+}
+
+static void run_tiled_all(QmSatdTiledFn tst_fn) {
+    run_tiled(tst_fn, true, false, 20);
+    run_tiled(tst_fn, false, false, 20);
+    run_tiled(tst_fn, true, true, 1);
+    run_tiled(tst_fn, false, true, 1);
+}
+
+TEST(QmSatdTiledTest, CMatchesReference) {
+    run_tiled_all(nullptr);
+}
+
+#ifdef ARCH_X86_64
+
+TEST(QmSatdTiledTest, AVX2MatchesC) {
+    run_tiled_all(qm_satd_tiled_no_rshift_avx2);
+}
+
+#if EN_AVX512_SUPPORT
+
+TEST(QmSatdTiledTest, AVX512MatchesC) {
+    run_tiled_all(qm_satd_tiled_no_rshift_avx512);
+}
+
+#endif  // EN_AVX512_SUPPORT
+
+#endif  // ARCH_X86_64
+
+/**
  * @brief Unit test for get_psy_dist_satd_bias_only
  *
  * Test strategy:
@@ -691,6 +806,48 @@ TEST_F(PsyDistSatdBiasOnlyTest, HbdGoldenConstantDifference) {
         input, 0, 16, recon, 0, 16, 8, 8, true, 0.5, qm);
     ASSERT_GT(dist_8x8, 0u);
     ASSERT_EQ(golden_block_hbd(input, recon, 16, 8, 0.5, qm), dist_8x8);
+}
+
+// A transform cropped by the picture edge still hadamards every block it touches, so a cropped
+// area must cost the same as the whole blocks it rounds up to
+TEST_F(PsyDistSatdBiasOnlyTest, CroppedAreaRoundsUpToWholeBlocks) {
+    const QmVal *qm = svt_aom_get_satd_bias_qmatrix();
+    uint8_t input[16 * 16];
+    uint8_t recon[16 * 16];
+    SVTRandom rnd(0, 255);
+    for (int i = 0; i < 16 * 16; ++i) {
+        input[i] = (uint8_t)rnd.random();
+        recon[i] = (uint8_t)rnd.random();
+    }
+
+    ASSERT_EQ(get_psy_dist_satd_bias_only(input, 0, 16, recon, 0, 16, 16, 16,
+                                          false, 0.5, qm),
+              get_psy_dist_satd_bias_only(input, 0, 16, recon, 0, 16, 12, 12,
+                                          false, 0.5, qm));
+    ASSERT_EQ(get_psy_dist_satd_bias_only(input, 0, 16, recon, 0, 16, 8, 4,
+                                          false, 0.5, qm),
+              get_psy_dist_satd_bias_only(input, 0, 16, recon, 0, 16, 6, 4,
+                                          false, 0.5, qm));
+}
+
+TEST_F(PsyDistSatdBiasOnlyTest, HbdCroppedAreaRoundsUpToWholeBlocks) {
+    const QmVal *qm = svt_aom_get_satd_bias_qmatrix();
+    uint16_t input[16 * 16];
+    uint16_t recon[16 * 16];
+    SVTRandom rnd(0, 1023);
+    for (int i = 0; i < 16 * 16; ++i) {
+        input[i] = (uint16_t)rnd.random();
+        recon[i] = (uint16_t)rnd.random();
+    }
+
+    ASSERT_EQ(get_psy_dist_satd_bias_only(input, 0, 16, recon, 0, 16, 16, 16,
+                                          true, 0.5, qm),
+              get_psy_dist_satd_bias_only(input, 0, 16, recon, 0, 16, 12, 12,
+                                          true, 0.5, qm));
+    ASSERT_EQ(get_psy_dist_satd_bias_only(input, 0, 16, recon, 0, 16, 8, 4,
+                                          true, 0.5, qm),
+              get_psy_dist_satd_bias_only(input, 0, 16, recon, 0, 16, 6, 4,
+                                          true, 0.5, qm));
 }
 
 TEST_F(PsyDistSatdBiasOnlyTest, HbdGoldenRandomBlock) {

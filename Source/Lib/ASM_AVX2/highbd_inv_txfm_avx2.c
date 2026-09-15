@@ -7108,8 +7108,11 @@ void svt_dav1d_inv_txfm2d_add_16x16_avx2(const int32_t *input, uint16_t *output_
     }
 }
 
-void svt_dav1d_inv_txfm2d_add_32x32_avx2(const int32_t *input, uint16_t *output_r, int32_t stride_r, uint16_t *output_w,
-                                         int32_t stride_w, TxType tx_type, int32_t bd) {
+// The dav1d kernels take the index of the last coefficient and pick a reduced path from it, which
+// the eob-less entry point below disables by passing the whole block
+static void dav1d_inv_txfm2d_add_32x32_eob_avx2(const int32_t *input, uint16_t *output_r, int32_t stride_r,
+                                                uint16_t *output_w, int32_t stride_w, TxType tx_type, int32_t last_coeff,
+                                                int32_t bd) {
     DECLARE_ALIGNED(32, int32_t, coeff[MAX_TX_SQUARE]);
 
     //transpose coeff
@@ -7126,10 +7129,10 @@ void svt_dav1d_inv_txfm2d_add_32x32_avx2(const int32_t *input, uint16_t *output_
 
     switch (tx_type) {
     case DCT_DCT:
-        svt_dav1d_inv_txfm_add_dct_dct_32x32_10bpc_avx2(output_w, stride_w * 2, coeff, 1024 /*eob*/, bd);
+        svt_dav1d_inv_txfm_add_dct_dct_32x32_10bpc_avx2(output_w, stride_w * 2, coeff, last_coeff, bd);
         break;
     case IDTX:
-        svt_dav1d_inv_txfm_add_identity_identity_32x32_10bpc_avx2(output_w, stride_w * 2, coeff, 1024 /*eob*/, bd);
+        svt_dav1d_inv_txfm_add_identity_identity_32x32_10bpc_avx2(output_w, stride_w * 2, coeff, last_coeff, bd);
         break;
     default: svt_av1_inv_txfm2d_add_32x32_c(input, output_r, stride_r, output_w, stride_w, tx_type, bd); break;
     }
@@ -7146,8 +7149,9 @@ void svt_dav1d_inv_txfm2d_add_32x32_avx2(const int32_t *input, uint16_t *output_
     }
 }
 
-void svt_dav1d_inv_txfm2d_add_64x64_avx2(const int32_t *input, uint16_t *output_r, int32_t stride_r, uint16_t *output_w,
-                                         int32_t stride_w, TxType tx_type, int32_t bd) {
+static void dav1d_inv_txfm2d_add_64x64_eob_avx2(const int32_t *input, uint16_t *output_r, int32_t stride_r,
+                                                uint16_t *output_w, int32_t stride_w, TxType tx_type, int32_t last_coeff,
+                                                int32_t bd) {
     DECLARE_ALIGNED(32, int32_t, coeff[MAX_TX_SQUARE]);
 
     //transpose coeff
@@ -7168,7 +7172,7 @@ void svt_dav1d_inv_txfm2d_add_64x64_avx2(const int32_t *input, uint16_t *output_
 
     switch (tx_type) {
     case DCT_DCT:
-        svt_dav1d_inv_txfm_add_dct_dct_64x64_10bpc_avx2(output_w, stride_w * 2, coeff, 1024 /*eob*/, bd);
+        svt_dav1d_inv_txfm_add_dct_dct_64x64_10bpc_avx2(output_w, stride_w * 2, coeff, last_coeff, bd);
         break;
     default: svt_av1_inv_txfm2d_add_64x64_c(input, output_r, stride_r, output_w, stride_w, tx_type, bd); break;
     }
@@ -7188,6 +7192,30 @@ void svt_dav1d_inv_txfm2d_add_64x64_avx2(const int32_t *input, uint16_t *output_
                 (__m256i *)(output_w + i * stride_w + 48),
                 _mm256_min_epi16(_mm256_loadu_si256((__m256i *)(output_w + i * stride_w + 48)), max_val));
         }
+    }
+}
+
+void svt_dav1d_inv_txfm2d_add_32x32_avx2(const int32_t *input, uint16_t *output_r, int32_t stride_r, uint16_t *output_w,
+                                         int32_t stride_w, TxType tx_type, int32_t bd) {
+    dav1d_inv_txfm2d_add_32x32_eob_avx2(input, output_r, stride_r, output_w, stride_w, tx_type, 1024, bd);
+}
+
+void svt_dav1d_inv_txfm2d_add_64x64_avx2(const int32_t *input, uint16_t *output_r, int32_t stride_r, uint16_t *output_w,
+                                         int32_t stride_w, TxType tx_type, int32_t bd) {
+    dav1d_inv_txfm2d_add_64x64_eob_avx2(input, output_r, stride_r, output_w, stride_w, tx_type, 1024, bd);
+}
+
+// eob here counts coefficients, as everywhere else in the encoder, while dav1d wants the index of
+// the last one, so it is passed down one lower. eob is never 0 on this path
+void svt_dav1d_inv_txfm2d_add_sq_eob_avx2(const int32_t *input, uint16_t *output_r, int32_t stride_r,
+                                          uint16_t *output_w, int32_t stride_w, TxType tx_type, TxSize tx_size,
+                                          int32_t eob, int32_t bd) {
+    assert(eob > 0);
+    if (tx_size == TX_32X32)
+        dav1d_inv_txfm2d_add_32x32_eob_avx2(input, output_r, stride_r, output_w, stride_w, tx_type, eob - 1, bd);
+    else {
+        assert(tx_size == TX_64X64);
+        dav1d_inv_txfm2d_add_64x64_eob_avx2(input, output_r, stride_r, output_w, stride_w, tx_type, eob - 1, bd);
     }
 }
 

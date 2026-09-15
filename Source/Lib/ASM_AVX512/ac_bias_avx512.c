@@ -72,4 +72,54 @@ uint64_t qm_satd_no_rshift_avx512(const TranLow *input_coeffs, const TranLow *re
     return (uint64_t)_mm512_reduce_add_epi64(acc);
 }
 
+// Tiled variant, see qm_satd_tiled_no_rshift_c for the input contract. With every difference below
+// 2^20 a weighted product stays under 2^28, so a lane can hold four of them in 32 bits, which is
+// one 64-coefficient group. Each group is accumulated in 32-bit lanes with a single multiply per
+// vector and widened once, and the whole run is reduced once at the end. The matrix is widened
+// once up front, since a block of 16 or 64 uses one or four vectors of it repeatedly
+uint64_t qm_satd_tiled_no_rshift_avx512(const TranLow *src_coeffs, const TranLow *recon_coeffs,
+                                        const QmVal *satd_bias_qmatrix, const uint16_t block_size,
+                                        const uint16_t n_blocks) {
+    const uint32_t total = (uint32_t)block_size * n_blocks;
+    __m512i        acc64 = _mm512_setzero_si512();
+
+    if (satd_bias_qmatrix != NULL) {
+        // block_size is 16 or 64, so the matrix covers one or four vectors
+        const uint32_t n_bias = block_size >> 4;
+        __m512i        bias[4];
+        for (uint32_t k = 0; k < n_bias; k++)
+            bias[k] = _mm512_cvtepu8_epi32(_mm_loadu_si128((const __m128i *)(satd_bias_qmatrix + 16 * k)));
+
+        for (uint32_t i = 0; i < total; i += 64) {
+            const uint32_t n_vec = AOMMIN(4, (total - i) >> 4);
+            __m512i        acc32 = _mm512_setzero_si512();
+            for (uint32_t v = 0; v < n_vec; v++) {
+                const __m512i in   = _mm512_loadu_si512((const __m512i *)(src_coeffs + i + 16 * v));
+                const __m512i re   = _mm512_loadu_si512((const __m512i *)(recon_coeffs + i + 16 * v));
+                const __m512i diff = _mm512_abs_epi32(_mm512_sub_epi32(in, re));
+                // The group is block aligned for 64-coefficient blocks and the matrix repeats every
+                // vector for 16-coefficient ones, so the vector index selects the weights either way
+                acc32 = _mm512_add_epi32(acc32, _mm512_mullo_epi32(diff, bias[v & (n_bias - 1)]));
+            }
+            acc64 = _mm512_add_epi64(acc64, _mm512_cvtepu32_epi64(_mm512_castsi512_si256(acc32)));
+            acc64 = _mm512_add_epi64(acc64, _mm512_cvtepu32_epi64(_mm512_extracti64x4_epi64(acc32, 1)));
+        }
+    } else {
+        for (uint32_t i = 0; i < total; i += 64) {
+            const uint32_t n_vec = AOMMIN(4, (total - i) >> 4);
+            __m512i        acc32 = _mm512_setzero_si512();
+            for (uint32_t v = 0; v < n_vec; v++) {
+                const __m512i in   = _mm512_loadu_si512((const __m512i *)(src_coeffs + i + 16 * v));
+                const __m512i re   = _mm512_loadu_si512((const __m512i *)(recon_coeffs + i + 16 * v));
+                const __m512i diff = _mm512_abs_epi32(_mm512_sub_epi32(in, re));
+                acc32              = _mm512_add_epi32(acc32, _mm512_slli_epi32(diff, AOM_QM_BITS));
+            }
+            acc64 = _mm512_add_epi64(acc64, _mm512_cvtepu32_epi64(_mm512_castsi512_si256(acc32)));
+            acc64 = _mm512_add_epi64(acc64, _mm512_cvtepu32_epi64(_mm512_extracti64x4_epi64(acc32, 1)));
+        }
+    }
+
+    return (uint64_t)_mm512_reduce_add_epi64(acc64);
+}
+
 #endif // EN_AVX512_SUPPORT
