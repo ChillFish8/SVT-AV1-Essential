@@ -12,6 +12,7 @@
 *.opensdf
 *.log
 .vscode
+.idea
 .cache/
 Bin
 Build
