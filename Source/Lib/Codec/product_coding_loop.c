@@ -4439,6 +4439,8 @@ static void tx_type_search(PictureControlSet *pcs, ModeDecisionContext *ctx, Mod
     uint32_t txb_origin_index       = txb_origin_x + (txb_origin_y * cand_bf->residual->stride_y);
     uint32_t input_txb_origin_index = (ctx->sb_origin_x + txb_origin_x + input_pic->org_x) +
         ((ctx->sb_origin_y + txb_origin_y + input_pic->org_y) * input_pic->stride_y);
+    // Guarded so the shared candidate buffers are only read when the feature is on
+    const bool     use_optimize_b    = pcs->scs->static_config.optimize_b_mode != 0;
     int32_t        cropped_tx_width  = MIN(ctx->blk_geom->tx_width[ctx->tx_depth],
                                    pcs->ppcs->aligned_width - (ctx->sb_origin_x + txb_origin_x));
     int32_t        cropped_tx_height = MIN((uint8_t)(ctx->blk_geom->tx_height[ctx->tx_depth] >> ctx->mds_subres_step),
@@ -4534,6 +4536,21 @@ static void tx_type_search(PictureControlSet *pcs, ModeDecisionContext *ctx, Mod
                     }
                 }
 
+                OptimizeBInput ob = {0};
+                if (use_optimize_b)
+                    svt_aom_set_optimize_b_input(&ob,
+                                                 cand_bf,
+                                                 input_pic->buffer_y,
+                                                 input_txb_origin_index,
+                                                 input_pic->stride_y,
+                                                 cand_bf->pred->buffer_y,
+                                                 txb_origin_index,
+                                                 cand_bf->pred->stride_y,
+                                                 recon_ptr->buffer_y,
+                                                 txb_origin_index,
+                                                 cand_bf->recon->stride_y,
+                                                 (uint32_t)cropped_tx_width,
+                                                 (uint32_t)cropped_tx_height);
                 quantized_dc_txt[tx_type] = svt_aom_quantize_inv_quantize(
                     pcs,
                     ctx,
@@ -4552,8 +4569,8 @@ static void tx_type_search(PictureControlSet *pcs, ModeDecisionContext *ctx, Mod
                     cand_bf->cand->block_mi.mode,
                     full_lambda,
                     false,
-                    0,
-                    NULL);
+                    use_optimize_b,
+                    &ob);
             }
             uint32_t y_has_coeff = eob_txt[tx_type] > 0;
 
@@ -5374,6 +5391,8 @@ static void perform_dct_dct_tx(PictureControlSet *pcs, ModeDecisionContext *ctx,
     const uint32_t txb_origin_index       = tx_org_x + (tx_org_y * cand_bf->residual->stride_y);
     const uint32_t input_txb_origin_index = (ctx->sb_origin_x + tx_org_x + input_pic->org_x) +
         ((ctx->sb_origin_y + tx_org_y + input_pic->org_y) * input_pic->stride_y);
+    // Guarded so the shared candidate buffers are only read when the feature is on
+    const bool use_optimize_b = pcs->scs->static_config.optimize_b_mode != 0;
 
     const double effective_ac_bias = get_effective_ac_bias(
         pcs->scs->static_config.ac_bias, pcs->slice_type == I_SLICE, pcs->temporal_layer_index);
@@ -5458,6 +5477,29 @@ static void perform_dct_dct_tx(PictureControlSet *pcs, ModeDecisionContext *ctx,
     EbPictureBufferDesc *const recon_ptr       = cand_bf->recon;
     EbPictureBufferDesc *const quant_coeff_ptr = cand_bf->quant;
 
+    OptimizeBInput ob = {0};
+    if (use_optimize_b) {
+        // Distortion is measured over the visible part of the tx only, and height follows
+        // the subres step the residual was built with
+        const int32_t cropped_tx_width  = MIN(ctx->blk_geom->tx_width[tx_depth],
+                                              pcs->ppcs->aligned_width - (ctx->sb_origin_x + tx_org_x));
+        const int32_t cropped_tx_height = MIN((uint8_t)(ctx->blk_geom->tx_height[tx_depth] >> ctx->mds_subres_step),
+                                              pcs->ppcs->aligned_height - (ctx->sb_origin_y + tx_org_y));
+        svt_aom_set_optimize_b_input(&ob,
+                                     cand_bf,
+                                     input_pic->buffer_y,
+                                     input_txb_origin_index,
+                                     input_pic->stride_y,
+                                     cand_bf->pred->buffer_y,
+                                     txb_origin_index,
+                                     cand_bf->pred->stride_y,
+                                     recon_ptr->buffer_y,
+                                     txb_origin_index,
+                                     cand_bf->recon->stride_y,
+                                     (uint32_t)cropped_tx_width,
+                                     (uint32_t)cropped_tx_height);
+    }
+
     if (!tx_search_skip_flag) {
         // Y: T Q i_q
         svt_aom_estimate_transform(pcs,
@@ -5490,8 +5532,8 @@ static void perform_dct_dct_tx(PictureControlSet *pcs, ModeDecisionContext *ctx,
             cand_bf->cand->block_mi.mode,
             full_lambda,
             false,
-            0,
-            NULL);
+            use_optimize_b,
+            &ob);
     } else {
         // Init params
         cand_bf->quant_dc.y[txb_itr] = 0;

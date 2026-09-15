@@ -6731,6 +6731,7 @@ void svt_aom_sig_deriv_enc_dec_light_pd1(PictureControlSet *pcs, ModeDecisionCon
             rdoq_level = MAX(rdoq_level, pcs->rdoq_level);
     }
     set_rdoq_controls(ctx, rdoq_level);
+    ctx->active_optimize_b_mode = pcs->scs->static_config.optimize_b_mode;
     uint8_t me_subpel_level = 0;
     if (lpd1_level <= LPD1_LVL_0)
         if ((rtc_tune && !use_flat_ipp && enc_mode <= ENC_M10) || (rtc_tune && use_flat_ipp && enc_mode <= ENC_M11) ||
@@ -6950,6 +6951,7 @@ void svt_aom_sig_deriv_enc_dec(SequenceControlSet *scs, PictureControlSet *pcs, 
         rdoq_level = pcs->rdoq_level;
 
     set_rdoq_controls(ctx, rdoq_level);
+    ctx->active_optimize_b_mode = pcs->scs->static_config.optimize_b_mode;
     // There are only redundant blocks when HVA_HVB shapes are used
     if (pd_pass == PD_PASS_0 || !ctx->nsq_geom_ctrls.allow_HVA_HVB)
         ctx->redundant_blk = false;

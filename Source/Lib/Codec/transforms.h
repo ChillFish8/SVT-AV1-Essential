@@ -103,6 +103,11 @@ typedef struct OptimizeBInput {
     struct ModeDecisionCandidateBuffer *cand_bf;
 } OptimizeBInput;
 
+void svt_aom_set_optimize_b_input(OptimizeBInput *ob, struct ModeDecisionCandidateBuffer *cand_bf, uint8_t *input,
+                                  uint32_t input_offset, uint32_t input_stride, uint8_t *pred, uint32_t pred_offset,
+                                  uint32_t pred_stride, uint8_t *recon, int32_t recon_offset, uint32_t recon_stride,
+                                  uint32_t area_width, uint32_t area_height);
+
 extern uint8_t svt_aom_quantize_inv_quantize(PictureControlSet *pcs, ModeDecisionContext *ctx, int32_t *coeff,
                                              int32_t *quant_coeff, int32_t *recon_coeff, uint32_t qindex,
                                              int32_t segmentation_qp_offset, TxSize txsize, uint16_t *eob,

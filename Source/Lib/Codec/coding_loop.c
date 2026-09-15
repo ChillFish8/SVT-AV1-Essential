@@ -383,6 +383,18 @@ static void av1_encode_loop(PictureControlSet *pcs, EncDecContext *ed_ctx, Super
         aom_av1_set_ssim_rdmult(md_ctx, pcs, mi_row, mi_col);
     }
 
+    // The optimize-b refinement runs on all three encode-pass planes; the shared scratch
+    // candidate is only touched when the feature is on, to keep the default path
+    // byte-identical
+    const bool                   use_optimize_b = pcs->scs->static_config.optimize_b_mode != 0;
+    ModeDecisionCandidateBuffer *ob_cand_bf     = NULL;
+    if (use_optimize_b) {
+        ob_cand_bf = md_ctx->cand_bf_ptr_array[0];
+        // Rate estimation reads the mode off the candidate, so mirror the block's
+        ob_cand_bf->cand->block_mi.mode              = blk_ptr->block_mi.mode;
+        ob_cand_bf->cand->block_mi.filter_intra_mode = blk_ptr->block_mi.filter_intra_mode;
+    }
+
     //**********************************
     // Luma
     //**********************************
@@ -416,6 +428,28 @@ static void av1_encode_loop(PictureControlSet *pcs, EncDecContext *ed_ctx, Super
                                        PLANE_TYPE_Y,
                                        DEFAULT_SHAPE);
 
+            OptimizeBInput luma_ob = {0};
+            if (use_optimize_b) {
+                // Distortion is measured over the visible part of the tx only
+                const uint32_t cropped_tx_width = (uint32_t)MIN(
+                    blk_geom->tx_width[tx_depth], pcs->ppcs->aligned_width - (md_ctx->sb_origin_x + tx_org_x));
+                const uint32_t cropped_tx_height = (uint32_t)MIN(
+                    blk_geom->tx_height[tx_depth], pcs->ppcs->aligned_height - (md_ctx->sb_origin_y + tx_org_y));
+                svt_aom_set_optimize_b_input(&luma_ob,
+                                             ob_cand_bf,
+                                             input_samples->buffer_y,
+                                             input_luma_offset,
+                                             input_samples->stride_y,
+                                             pred_samples->buffer_y,
+                                             pred_luma_offset,
+                                             pred_samples->stride_y,
+                                             md_ctx->temp_recon_ptr->buffer_y,
+                                             0,
+                                             md_ctx->temp_recon_ptr->stride_y,
+                                             cropped_tx_width,
+                                             cropped_tx_height);
+            }
+
             blk_ptr->quant_dc.y[ed_ctx->txb_itr] = svt_aom_quantize_inv_quantize(
                 sb_ptr->pcs,
                 md_ctx,
@@ -434,8 +468,8 @@ static void av1_encode_loop(PictureControlSet *pcs, EncDecContext *ed_ctx, Super
                 blk_ptr->block_mi.mode,
                 md_ctx->full_lambda_md[(bit_depth == EB_TEN_BIT) ? EB_10_BIT_MD : EB_8_BIT_MD],
                 true,
-                0,
-                NULL);
+                use_optimize_b,
+                &luma_ob);
         }
 
         blk_ptr->y_has_coeff |= (eob[0] > 0) << ed_ctx->txb_itr;
@@ -468,6 +502,45 @@ static void av1_encode_loop(PictureControlSet *pcs, EncDecContext *ed_ctx, Super
             eob[2]                               = 0;
             blk_ptr->quant_dc.v[ed_ctx->txb_itr] = 0;
         } else {
+            OptimizeBInput cb_ob = {0};
+            OptimizeBInput cr_ob = {0};
+            if (use_optimize_b) {
+                // Distortion is measured over the visible part of the tx only; chroma is
+                // cropped against the 8-aligned luma origin the uv tx is derived from
+                const uint32_t cropped_tx_width_uv = (uint32_t)MIN(
+                    blk_geom->tx_width_uv[tx_depth],
+                    pcs->ppcs->aligned_width / 2 - ((md_ctx->sb_origin_x + ((tx_org_x >> 3) << 3)) >> 1));
+                const uint32_t cropped_tx_height_uv = (uint32_t)MIN(
+                    blk_geom->tx_height_uv[tx_depth],
+                    pcs->ppcs->aligned_height / 2 - ((md_ctx->sb_origin_y + ((tx_org_y >> 3) << 3)) >> 1));
+                svt_aom_set_optimize_b_input(&cb_ob,
+                                             ob_cand_bf,
+                                             input_samples->buffer_cb,
+                                             input_cb_offset,
+                                             input_samples->stride_cb,
+                                             pred_samples->buffer_cb,
+                                             pred_cb_offset,
+                                             pred_samples->stride_cb,
+                                             md_ctx->temp_recon_ptr->buffer_cb,
+                                             0,
+                                             md_ctx->temp_recon_ptr->stride_cb,
+                                             cropped_tx_width_uv,
+                                             cropped_tx_height_uv);
+                svt_aom_set_optimize_b_input(&cr_ob,
+                                             ob_cand_bf,
+                                             input_samples->buffer_cr,
+                                             input_cr_offset,
+                                             input_samples->stride_cr,
+                                             pred_samples->buffer_cr,
+                                             pred_cr_offset,
+                                             pred_samples->stride_cr,
+                                             md_ctx->temp_recon_ptr->buffer_cr,
+                                             0,
+                                             md_ctx->temp_recon_ptr->stride_cr,
+                                             cropped_tx_width_uv,
+                                             cropped_tx_height_uv);
+            }
+
             //**********************************
             // Cb
             //**********************************
@@ -514,8 +587,8 @@ static void av1_encode_loop(PictureControlSet *pcs, EncDecContext *ed_ctx, Super
                 blk_ptr->block_mi.mode,
                 md_ctx->full_lambda_md[(bit_depth == EB_TEN_BIT) ? EB_10_BIT_MD : EB_8_BIT_MD],
                 true,
-                0,
-                NULL);
+                use_optimize_b,
+                &cb_ob);
 
             //**********************************
             // Cr
@@ -563,8 +636,8 @@ static void av1_encode_loop(PictureControlSet *pcs, EncDecContext *ed_ctx, Super
                 blk_ptr->block_mi.mode,
                 md_ctx->full_lambda_md[(bit_depth == EB_TEN_BIT) ? EB_10_BIT_MD : EB_8_BIT_MD],
                 true,
-                0,
-                NULL);
+                use_optimize_b,
+                &cr_ob);
         }
 
         blk_ptr->u_has_coeff |= (eob[1] > 0) << ed_ctx->txb_itr;
