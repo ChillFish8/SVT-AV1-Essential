@@ -1551,11 +1551,12 @@ void tpl_mc_flow_synthesizer(PictureParentControlSet *pcs_array[MAX_TPL_LA_SW], 
     return;
 }
 void svt_aom_generate_r0beta(PictureParentControlSet *pcs) {
-    Av1Common          *cm                    = pcs->av1_cm;
-    SequenceControlSet *scs                   = pcs->scs;
-    int64_t             recrf_dist_base_sum   = 0;
-    int64_t             mc_dep_delta_base_sum = 0;
-    int64_t             mc_dep_cost_base      = 0;
+    Av1Common          *cm                         = pcs->av1_cm;
+    SequenceControlSet *scs                        = pcs->scs;
+    int64_t             recrf_dist_base_sum        = 0;
+    int64_t             mc_dep_delta_base_sum      = 0;
+    double              mean_mc_dep_delta_base_sum = 0;
+    int64_t             mc_dep_cost_base           = 0;
     const int32_t       shift = pcs->tpl_ctrls.synth_blk_size == 8 ? 1 : pcs->tpl_ctrls.synth_blk_size == 16 ? 2 : 3;
     const int32_t       step  = 1 << (shift);
     const int32_t       col_step_sr = coded_to_superres_mi(step, pcs->superres_denom);
@@ -1579,12 +1580,21 @@ void svt_aom_generate_r0beta(PictureParentControlSet *pcs) {
         }
     }
 
+    if (scs->balancing_ctrls.reshape_r0) {
+        // Floor the propagation at the no-propagation level, then keep only
+        // three quarters of the excess to damp outlier frames
+        mean_mc_dep_delta_base_sum = mc_dep_delta_base_sum = AOMMAX(mc_dep_delta_base_sum, recrf_dist_base_sum << 9);
+        mc_dep_delta_base_sum = ((mc_dep_delta_base_sum - (recrf_dist_base_sum << 9)) >> 1) +
+            ((mc_dep_delta_base_sum - (recrf_dist_base_sum << 9)) >> 2) + (recrf_dist_base_sum << 9);
+    }
+
     mc_dep_cost_base = (recrf_dist_base_sum << RDDIV_BITS) + mc_dep_delta_base_sum;
     if (mc_dep_cost_base != 0) {
         pcs->r0 = ((double)(recrf_dist_base_sum << (RDDIV_BITS))) / mc_dep_cost_base;
         // If there are outlier blocks responsible for most of the propagation, set r0 to 1.0 to indicate
         // no error propagation, as the result may not be reliable.
-        if (max_dist > (mc_dep_delta_base_sum / count) * 100 && max_dist > (mc_dep_delta_base_sum * 9 / 10))
+        if (max_dist > (mc_dep_delta_base_sum / count) * 100 && max_dist > (mc_dep_delta_base_sum * 9 / 10) &&
+            !scs->balancing_ctrls.reshape_r0)
             pcs->r0 = 1.0;
         pcs->tpl_is_valid = 1;
     } else {
@@ -1605,6 +1615,8 @@ void svt_aom_generate_r0beta(PictureParentControlSet *pcs) {
     const uint32_t picture_sb_height = (uint32_t)((pcs->aligned_height + scs->sb_size - 1) / scs->sb_size);
     const int32_t  mi_high           = sb_mi_sz; // sb size in 4x4 units
     const int32_t  mi_wide           = sb_mi_sz;
+    if (scs->balancing_ctrls.reshape_beta)
+        mean_mc_dep_delta_base_sum /= (double)picture_sb_width * picture_sb_height;
     for (uint32_t sb_y = 0; sb_y < picture_sb_height; ++sb_y) {
         for (uint32_t sb_x = 0; sb_x < picture_sb_width; ++sb_x) {
             uint16_t  mi_row           = pcs->sb_geom[sb_y * picture_sb_width + sb_x].org_y >> 2;
@@ -1629,6 +1641,14 @@ void svt_aom_generate_r0beta(PictureParentControlSet *pcs) {
                     recrf_dist_sum += tpl_stats_ptr->recrf_dist;
                     mc_dep_delta_sum += mc_dep_delta;
                 }
+            }
+            if (scs->balancing_ctrls.reshape_beta) {
+                // Lift quiet SBs toward the picture mean, then damp the excess
+                // the same way as the frame-level sum
+                mc_dep_delta_sum = AOMMAX(AOMMIN(mean_mc_dep_delta_base_sum, recrf_dist_sum << 15), mc_dep_delta_sum);
+                if (mc_dep_delta_sum > recrf_dist_sum << 9)
+                    mc_dep_delta_sum = ((mc_dep_delta_sum - (recrf_dist_sum << 9)) >> 1) +
+                        ((mc_dep_delta_sum - (recrf_dist_sum << 9)) >> 2) + (recrf_dist_sum << 9);
             }
             double beta = 1.0;
             if (recrf_dist_sum > 0) {
