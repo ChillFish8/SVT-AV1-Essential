@@ -61,6 +61,8 @@ typedef struct BalancingCtrls {
     uint8_t enabled;
     // Temporal layer at which r0 switches to its fourth root
     int8_t r0_dampening_layer;
+    // 0: OFF; 1: widen is_base to cover the shorter minigops of a reduced hierarchical level
+    uint8_t widen_is_base;
     // 0: OFF; 1: reshape the frame-level r0 and skip the outlier bypass
     uint8_t reshape_r0;
     // 0: OFF; 1: floor and soften the per-SB beta

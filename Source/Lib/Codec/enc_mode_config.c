@@ -725,7 +725,7 @@ static void tf_set_me_hme_params_oq(MeContext *me_ctx, PictureParentControlSet *
  * minigops produced by a reduced hierarchical level
  ******************************************************/
 uint8_t svt_aom_get_is_base(const PictureParentControlSet *ppcs, const SequenceControlSet *scs) {
-    if (!scs->balancing_ctrls.enabled)
+    if (!scs->balancing_ctrls.widen_is_base)
         return ppcs->temporal_layer_index == 0;
     return (ppcs->temporal_layer_index + scs->static_config.hierarchical_levels - ppcs->hierarchical_levels) == 0 ||
         ppcs->slice_type == I_SLICE;
@@ -2315,6 +2315,7 @@ void svt_aom_sig_deriv_pre_analysis_scs(SequenceControlSet *scs) {
     BalancingCtrls *balancing_ctrls              = &scs->balancing_ctrls;
     balancing_ctrls->enabled                     = scs->static_config.balancing_q_bias;
     balancing_ctrls->r0_dampening_layer          = scs->static_config.balancing_r0_dampening_layer;
+    balancing_ctrls->widen_is_base               = balancing_ctrls->enabled;
     balancing_ctrls->reshape_r0                  = balancing_ctrls->enabled;
     balancing_ctrls->reshape_beta                = balancing_ctrls->enabled;
     balancing_ctrls->soft_deltaq_map             = balancing_ctrls->enabled;

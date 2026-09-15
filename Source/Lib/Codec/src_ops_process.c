@@ -1583,12 +1583,17 @@ void svt_aom_generate_r0beta(PictureParentControlSet *pcs) {
         }
     }
 
-    if (scs->balancing_ctrls.reshape_r0) {
-        // Floor the propagation at the no-propagation level, then keep only
-        // three quarters of the excess to damp outlier frames
-        mean_mc_dep_delta_base_sum = mc_dep_delta_base_sum = AOMMAX(mc_dep_delta_base_sum, recrf_dist_base_sum << 9);
-        mc_dep_delta_base_sum = ((mc_dep_delta_base_sum - (recrf_dist_base_sum << 9)) >> 1) +
-            ((mc_dep_delta_base_sum - (recrf_dist_base_sum << 9)) >> 2) + (recrf_dist_base_sum << 9);
+    if (scs->balancing_ctrls.reshape_r0 || scs->balancing_ctrls.reshape_beta) {
+        // Floor the propagation at the no-propagation level. The per-SB lift under
+        // reshape_beta needs this floored sum as its picture mean, must be in
+        // int64 and widen once, as a round trip through double would drop precision above 2^53
+        const int64_t floored_mc_dep_delta_base_sum = AOMMAX(mc_dep_delta_base_sum, recrf_dist_base_sum << 9);
+        mean_mc_dep_delta_base_sum                  = (double)floored_mc_dep_delta_base_sum;
+        if (scs->balancing_ctrls.reshape_r0) {
+            // Keep only three quarters of the excess to damp outlier frames
+            mc_dep_delta_base_sum = ((floored_mc_dep_delta_base_sum - (recrf_dist_base_sum << 9)) >> 1) +
+                ((floored_mc_dep_delta_base_sum - (recrf_dist_base_sum << 9)) >> 2) + (recrf_dist_base_sum << 9);
+        }
     }
 
     mc_dep_cost_base = (recrf_dist_base_sum << RDDIV_BITS) + mc_dep_delta_base_sum;
