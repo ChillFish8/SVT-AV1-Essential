@@ -52,6 +52,8 @@ extern "C" {
 
     int64_t svt_aom_sse_c(const uint8_t *a, int a_stride, const uint8_t *b, int b_stride, int width, int height);
     RTCD_EXTERN int64_t(*svt_aom_sse)(const uint8_t *a, int a_stride, const uint8_t *b, int b_stride, int width, int height);
+    uint64_t qm_satd_no_rshift_c(const TranLow *input_coeffs, const TranLow *recon_coeffs, const QmVal *satd_bias_qmatrix, const uint16_t size);
+    RTCD_EXTERN uint64_t(*qm_satd_no_rshift)(const TranLow *input_coeffs, const TranLow *recon_coeffs, const QmVal *satd_bias_qmatrix, const uint16_t size);
 #if CONFIG_ENABLE_HIGH_BIT_DEPTH
     int64_t svt_aom_highbd_sse_c(const uint8_t *a8, int a_stride, const uint8_t *b8, int b_stride, int width, int height);
     RTCD_EXTERN int64_t(*svt_aom_highbd_sse)(const uint8_t *a8, int a_stride, const uint8_t *b8, int b_stride, int width, int height);
@@ -1430,6 +1432,10 @@ extern "C" {
 
 #ifdef ARCH_X86_64
     int64_t svt_aom_sse_avx2(const uint8_t *a, int a_stride, const uint8_t *b, int b_stride, int width, int height);
+    uint64_t qm_satd_no_rshift_avx2(const TranLow *input_coeffs, const TranLow *recon_coeffs, const QmVal *satd_bias_qmatrix, const uint16_t size);
+#if EN_AVX512_SUPPORT
+    uint64_t qm_satd_no_rshift_avx512(const TranLow *input_coeffs, const TranLow *recon_coeffs, const QmVal *satd_bias_qmatrix, const uint16_t size);
+#endif
 #if CONFIG_ENABLE_HIGH_BIT_DEPTH
     int64_t svt_aom_highbd_sse_avx2(const uint8_t *a8, int a_stride, const uint8_t *b8, int b_stride, int width, int height);
 #endif

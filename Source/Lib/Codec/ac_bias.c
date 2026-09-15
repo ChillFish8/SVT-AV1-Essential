@@ -13,6 +13,28 @@
 #include <stdbool.h>
 #include "ac_bias.h"
 #include "aom_dsp_rtcd.h"
+#include "inv_transforms.h"
+
+// Accumulate the quantisation-matrix weighted absolute difference between the input and recon
+// coefficients. The result is left unshifted so the caller controls the final rounding. A NULL
+// matrix means uniform weighting, which is the qm scale of AOM_QM_BITS applied to every coeff.
+// Widths are only ever multiples of 8, so the SIMD counterparts may assume that. The difference is
+// taken in 64-bit so that a full-range coefficient pair neither overflows the subtraction nor
+// produces the unrepresentable ABS(INT32_MIN), which the SIMD kernels treat as 2^31
+uint64_t qm_satd_no_rshift_c(const TranLow *input_coeffs, const TranLow *recon_coeffs, const QmVal *satd_bias_qmatrix,
+                             const uint16_t size) {
+    uint64_t satd_dist = 0;
+
+    if (satd_bias_qmatrix != NULL) {
+        for (uint16_t k = 0; k < size; k++)
+            satd_dist += (uint64_t)llabs((int64_t)input_coeffs[k] - (int64_t)recon_coeffs[k]) * satd_bias_qmatrix[k];
+    } else {
+        for (uint16_t k = 0; k < size; k++)
+            satd_dist += (uint64_t)llabs((int64_t)input_coeffs[k] - (int64_t)recon_coeffs[k]) << AOM_QM_BITS;
+    }
+
+    return satd_dist;
+}
 
 /* Regular version of "AC Bias"
  *
