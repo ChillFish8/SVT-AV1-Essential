@@ -18,6 +18,7 @@ Bin
 Build
 build
 compile_commands.json
+data/
 test/vectors/
 test/docs/
 !Build/linux/build.sh
