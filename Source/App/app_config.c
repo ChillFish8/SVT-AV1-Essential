@@ -821,8 +821,7 @@ ConfigDescription config_entry_rc[] = {
      "Replaces the QP allocation with the balancing model, default is 0 [0-1]"},
     {BALANCING_R0_DAMPENING_LAYER_TOKEN,
      "Temporal layer at which r0 switches to its fourth root, default is derived from --balancing-q-bias [-8 to 8]"},
-    {OPTIMIZE_B_MODE_TOKEN,
-     "Extra pixel-domain coefficient refinement before the trellis, default is 0 [0-1]"},
+    {OPTIMIZE_B_MODE_TOKEN, "Extra pixel-domain coefficient refinement before the trellis, default is 0 [0-2]"},
     // Zones
     {ZONES_TOKEN, "CRF/CQP zones, format: start,end,quality;start,end,quality;..., default is no zones"},
     // Termination
@@ -1131,7 +1130,7 @@ ConfigDescription fconfig_entry_rc[] = {
     {BALANCING_Q_BIAS_TOKEN, "Replaces the QP allocation with the balancing model, default is 0 [0-1]"},
     {BALANCING_R0_DAMPENING_LAYER_TOKEN,
      "Temporal layer at which r0 switches to its fourth root, default is derived from --balancing-q-bias [-8 to 8]"},
-    {OPTIMIZE_B_MODE_TOKEN, "Extra pixel-domain coefficient refinement before the trellis, default is 0 [0-1]"},
+    {OPTIMIZE_B_MODE_TOKEN, "Extra pixel-domain coefficient refinement before the trellis, default is 0 [0-2]"},
     // Zones
     {ZONES_TOKEN, "CRF/CQP zones, format: start,end,quality;start,end,quality;..., default is no zones"},
     // Noise normalization strength

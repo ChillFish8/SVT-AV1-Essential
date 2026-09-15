@@ -877,6 +877,13 @@ EbErrorType svt_av1_verify_settings(SequenceControlSet *scs) {
         return_error = EB_ErrorBadParameter;
     }
 
+    // INT8_MIN is the unset sentinel resolved later based on balancing-q-bias
+    if (config->balancing_r0_dampening_layer != INT8_MIN &&
+        (config->balancing_r0_dampening_layer < -8 || config->balancing_r0_dampening_layer > 8)) {
+        SVT_ERROR("Balancing r0 dampening layer must be between -8 and 8\n");
+        return_error = EB_ErrorBadParameter;
+    }
+
     if (config->sharpness > 7 || config->sharpness < -7) {
         SVT_ERROR("Sharpness level must be between -7 and 7\n");
         return_error = EB_ErrorBadParameter;

@@ -965,7 +965,7 @@ typedef struct EbSvtAv1EncConfiguration {
     // INT8_MIN: derive from balancing_q_bias
     int8_t balancing_r0_dampening_layer;
     // Extra pixel-domain coefficient refinement before the trellis
-    // 0: OFF; 1: zbin-zeroing trial
+    // 0: OFF; 1: zbin-zeroing trial before the trellis; 2: applies mode 1 as well as disables the trellis
     uint8_t optimize_b_mode;
 
     /* @brief Indicates where to insert an S-Frame, only available when sframe_mode is SFRAME_FLEXIBLE_ARF */

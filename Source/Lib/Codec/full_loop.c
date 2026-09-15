@@ -1487,7 +1487,7 @@ void svt_av1_perform_noise_normalization(MacroblockPlane *p, QuantParam *qparam,
 void svt_aom_set_optimize_b_input(OptimizeBInput *ob, struct ModeDecisionCandidateBuffer *cand_bf, uint8_t *input,
                                   uint32_t input_offset, uint32_t input_stride, uint8_t *pred, uint32_t pred_offset,
                                   uint32_t pred_stride, uint8_t *recon, int32_t recon_offset, uint32_t recon_stride,
-                                  uint32_t area_width, uint32_t area_height) {
+                                  uint32_t area_width, uint32_t area_height, bool is_hbd) {
     ob->input        = input;
     ob->input_offset = input_offset;
     ob->input_stride = input_stride;
@@ -1500,6 +1500,7 @@ void svt_aom_set_optimize_b_input(OptimizeBInput *ob, struct ModeDecisionCandida
     ob->area_width   = area_width;
     ob->area_height  = area_height;
     ob->cand_bf      = cand_bf;
+    ob->is_hbd       = is_hbd;
 }
 // Rate of the current quantized coefficients, used to cost each optimize-b trial
 static uint64_t slow_optimize_b_calculate_rate(PictureControlSet *pcs, ModeDecisionContext *ctx, int32_t *quant_coeff,
@@ -1541,7 +1542,7 @@ static uint64_t slow_optimize_b_calculate_dist(PictureControlSet *pcs, ModeDecis
                                             recon_stride,
                                             recon_coeff,
                                             0,
-                                            ctx->hbd_md,
+                                            ob->is_hbd,
                                             txsize,
                                             tx_type,
                                             plane,
@@ -1563,7 +1564,7 @@ static uint64_t slow_optimize_b_calculate_dist(PictureControlSet *pcs, ModeDecis
                                                      recon_stride,
                                                      ob->area_width,
                                                      ob->area_height,
-                                                     ctx->hbd_md,
+                                                     ob->is_hbd,
                                                      &(ob->cand_bf->cand->block_mi),
                                                      false,
                                                      0,
@@ -1577,7 +1578,7 @@ static uint64_t slow_optimize_b_calculate_dist(PictureControlSet *pcs, ModeDecis
                                         recon_stride,
                                         ob->area_width,
                                         ob->area_height,
-                                        ctx->hbd_md,
+                                        ob->is_hbd,
                                         0.5,
                                         svt_aom_get_satd_bias_qmatrix());
     // Match the distortion scale the rdoq lambda expects
@@ -1955,7 +1956,10 @@ uint8_t svt_aom_quantize_inv_quantize(PictureControlSet *pcs, ModeDecisionContex
         }
     }
 
-    // Mode 2 disables the stock trellis; the early slow pass above is the only refinement
+    // Mode 2 disables the stock trellis unconditionally, regardless of optimize_b_available.
+    // At call sites where optimize_b_available is 0 (chroma here, and light-PD1 luma in
+    // product_coding_loop.c), the slow pass above never runs, so those blocks get no
+    // coefficient optimisation at all under mode 2.
     if (perform_rdoq && *eob != 0 && ctx->active_optimize_b_mode != 2) {
         // Perform rdoq
         svt_av1_optimize_b(pcs,

@@ -447,7 +447,8 @@ static void av1_encode_loop(PictureControlSet *pcs, EncDecContext *ed_ctx, Super
                                              0,
                                              md_ctx->temp_recon_ptr->stride_y,
                                              cropped_tx_width,
-                                             cropped_tx_height);
+                                             cropped_tx_height,
+                                             is_16bit);
             }
 
             blk_ptr->quant_dc.y[ed_ctx->txb_itr] = svt_aom_quantize_inv_quantize(
@@ -525,7 +526,8 @@ static void av1_encode_loop(PictureControlSet *pcs, EncDecContext *ed_ctx, Super
                                              0,
                                              md_ctx->temp_recon_ptr->stride_cb,
                                              cropped_tx_width_uv,
-                                             cropped_tx_height_uv);
+                                             cropped_tx_height_uv,
+                                             is_16bit);
                 svt_aom_set_optimize_b_input(&cr_ob,
                                              ob_cand_bf,
                                              input_samples->buffer_cr,
@@ -538,7 +540,8 @@ static void av1_encode_loop(PictureControlSet *pcs, EncDecContext *ed_ctx, Super
                                              0,
                                              md_ctx->temp_recon_ptr->stride_cr,
                                              cropped_tx_width_uv,
-                                             cropped_tx_height_uv);
+                                             cropped_tx_height_uv,
+                                             is_16bit);
             }
 
             //**********************************

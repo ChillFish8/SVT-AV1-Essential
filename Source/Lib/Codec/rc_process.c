@@ -938,9 +938,11 @@ static int crf_qindex_calc(PictureControlSet *pcs, RATE_CONTROL *rc, int qindex)
 
         // Above the dampening layer the fourth root keeps deep layers closer
         // to the base frame's quality
+        // Dampening only applies when balancing is on. Otherwise the offset must not
+        // influence the threshold at all, even though the config field may still be set
         double qstep_ratio;
-        if ((int8_t)pcs->temporal_layer_index >=
-            AOMMAX(1, (int8_t)ppcs->hierarchical_levels + scs->balancing_ctrls.r0_dampening_layer))
+        const int8_t dampening_layer = scs->balancing_ctrls.enabled ? scs->balancing_ctrls.r0_dampening_layer : 0;
+        if ((int8_t)pcs->temporal_layer_index >= AOMMAX(1, (int8_t)ppcs->hierarchical_levels + dampening_layer))
             qstep_ratio = sqrt(sqrt(ppcs->r0)) * weight *
                 qp_scale_compress_weight[scs->static_config.qp_scale_compress_strength];
         else

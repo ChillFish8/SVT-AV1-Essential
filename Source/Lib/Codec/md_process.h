@@ -1077,7 +1077,7 @@ typedef struct ModeDecisionContext {
     NsqSearchCtrls       nsq_search_ctrls;
     DepthEarlyExitCtrls  depth_early_exit_ctrls;
     RdoqCtrls            rdoq_ctrls;
-    // 0: OFF; 1: zbin-zeroing trial before the trellis
+    // 0: OFF; 1: zbin-zeroing trial before the trellis; 2: applies mode 1 as well as disables the trellis
     uint8_t              active_optimize_b_mode;
     uint8_t              disallow_8x8;
     uint8_t              disallow_4x4;

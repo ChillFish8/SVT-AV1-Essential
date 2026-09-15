@@ -4550,7 +4550,8 @@ static void tx_type_search(PictureControlSet *pcs, ModeDecisionContext *ctx, Mod
                                                  txb_origin_index,
                                                  cand_bf->recon->stride_y,
                                                  (uint32_t)cropped_tx_width,
-                                                 (uint32_t)cropped_tx_height);
+                                                 (uint32_t)cropped_tx_height,
+                                                 ctx->hbd_md);
                 quantized_dc_txt[tx_type] = svt_aom_quantize_inv_quantize(
                     pcs,
                     ctx,
@@ -5497,7 +5498,8 @@ static void perform_dct_dct_tx(PictureControlSet *pcs, ModeDecisionContext *ctx,
                                      txb_origin_index,
                                      cand_bf->recon->stride_y,
                                      (uint32_t)cropped_tx_width,
-                                     (uint32_t)cropped_tx_height);
+                                     (uint32_t)cropped_tx_height,
+                                     ctx->hbd_md);
     }
 
     if (!tx_search_skip_flag) {
