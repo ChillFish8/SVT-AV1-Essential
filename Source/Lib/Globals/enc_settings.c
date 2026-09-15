@@ -872,8 +872,8 @@ EbErrorType svt_av1_verify_settings(SequenceControlSet *scs) {
         return_error = EB_ErrorBadParameter;
     }
 
-    if (config->optimize_b_mode > 1) {
-        SVT_ERROR("Optimize b mode must be 0 or 1\n");
+    if (config->optimize_b_mode > 2) {
+        SVT_ERROR("Optimize b mode must be 0, 1 or 2\n");
         return_error = EB_ErrorBadParameter;
     }
 

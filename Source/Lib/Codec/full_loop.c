@@ -1889,8 +1889,14 @@ uint8_t svt_aom_quantize_inv_quantize(PictureControlSet *pcs, ModeDecisionContex
         if (eob_perc >= ctx->rdoq_ctrls.eob_th) {
             perform_rdoq = 0;
         }
-        // Mode 1 replaces the fast pre-pass; the trellis below still runs
-        if (perform_rdoq && optimize_b_available && ctx->active_optimize_b_mode == 1) {
+        // Modes 1 and 2 replace the fast pre-pass with the slow pass.
+        // mode 2 additionally disables the late trellis call below. Note this numbering
+        // is a different from 5fish's variant, where this configuration is
+        // mode 4. Mode 2 and 3 from the original 5fish implementation was not implemented
+        // due to there being not observed quality improvement over simply lowering the CRF
+        // to match the bitrate difference.
+        if (perform_rdoq && optimize_b_available &&
+            (ctx->active_optimize_b_mode == 1 || ctx->active_optimize_b_mode == 2)) {
             slow_optimize_b(pcs,
                             ctx,
                             quant_coeff,
@@ -1949,7 +1955,8 @@ uint8_t svt_aom_quantize_inv_quantize(PictureControlSet *pcs, ModeDecisionContex
         }
     }
 
-    if (perform_rdoq && *eob != 0) {
+    // Mode 2 disables the stock trellis; the early slow pass above is the only refinement
+    if (perform_rdoq && *eob != 0 && ctx->active_optimize_b_mode != 2) {
         // Perform rdoq
         svt_av1_optimize_b(pcs,
                            ctx,
