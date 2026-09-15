@@ -1487,7 +1487,10 @@ uint8_t svt_aom_quantize_inv_quantize(PictureControlSet *pcs, ModeDecisionContex
                                       int32_t segmentation_qp_offset, TxSize txsize, uint16_t *eob,
                                       uint32_t component_type, uint32_t bit_depth, TxType tx_type,
                                       int16_t txb_skip_context, int16_t dc_sign_context, PredictionMode pred_mode,
-                                      uint32_t lambda, bool is_encode_pass) {
+                                      uint32_t lambda, bool is_encode_pass, uint8_t optimize_b_available,
+                                      const OptimizeBInput *ob) {
+    UNUSED(optimize_b_available);
+    UNUSED(ob);
     SequenceControlSet *scs     = pcs->scs;
     EncodeContext      *enc_ctx = scs->enc_ctx;
     int32_t             plane   = component_type == COMPONENT_LUMA
@@ -1859,7 +1862,9 @@ void svt_aom_full_loop_chroma_light_pd1(PictureControlSet *pcs, ModeDecisionCont
                                                                0,
                                                                cand_bf->cand->block_mi.mode,
                                                                full_lambda,
-                                                               false);
+                                                               false,
+                                                               0,
+                                                               NULL);
 
         svt_aom_picture_full_distortion32_bits_single_facade(&(((int32_t *)ctx->tx_coeffs->buffer_cb)[0]),
                                                              &(((int32_t *)cand_bf->rec_coeff->buffer_cb)[0]),
@@ -1948,7 +1953,9 @@ void svt_aom_full_loop_chroma_light_pd1(PictureControlSet *pcs, ModeDecisionCont
                                                                0,
                                                                cand_bf->cand->block_mi.mode,
                                                                full_lambda,
-                                                               false);
+                                                               false,
+                                                               0,
+                                                               NULL);
 
         svt_aom_picture_full_distortion32_bits_single_facade(&(((int32_t *)ctx->tx_coeffs->buffer_cr)[0]),
                                                              &(((int32_t *)cand_bf->rec_coeff->buffer_cr)[0]),
@@ -2113,7 +2120,9 @@ void svt_aom_full_loop_uv(PictureControlSet *pcs, ModeDecisionContext *ctx, Mode
                 ctx->cb_dc_sign_context,
                 cand_bf->cand->block_mi.mode,
                 full_lambda,
-                false);
+                false,
+                0,
+                NULL);
 
             if (is_full_loop && ctx->mds_do_spatial_sse) {
                 uint32_t cb_has_coeff = cand_bf->eob.u[txb_itr] > 0;
@@ -2338,7 +2347,9 @@ void svt_aom_full_loop_uv(PictureControlSet *pcs, ModeDecisionContext *ctx, Mode
                 ctx->cr_dc_sign_context,
                 cand_bf->cand->block_mi.mode,
                 full_lambda,
-                false);
+                false,
+                0,
+                NULL);
             if (is_full_loop && ctx->mds_do_spatial_sse) {
                 uint32_t cr_has_coeff = cand_bf->eob.v[txb_itr] > 0;
 

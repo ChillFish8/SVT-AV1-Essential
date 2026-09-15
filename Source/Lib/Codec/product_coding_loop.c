@@ -4551,7 +4551,9 @@ static void tx_type_search(PictureControlSet *pcs, ModeDecisionContext *ctx, Mod
                     ctx->luma_dc_sign_context,
                     cand_bf->cand->block_mi.mode,
                     full_lambda,
-                    false);
+                    false,
+                    0,
+                    NULL);
             }
             uint32_t y_has_coeff = eob_txt[tx_type] > 0;
 
@@ -5276,7 +5278,9 @@ static void perform_dct_dct_tx_light_pd1(PictureControlSet *pcs, ModeDecisionCon
                                                            0,
                                                            cand_bf->cand->block_mi.mode,
                                                            full_lambda,
-                                                           false);
+                                                           false,
+                                                           0,
+                                                           NULL);
     // LUMA DISTORTION
     const uint32_t txbwidth  = ctx->blk_geom->tx_width[0];
     const uint32_t txbheight = ctx->blk_geom->tx_height[0];
@@ -5485,7 +5489,9 @@ static void perform_dct_dct_tx(PictureControlSet *pcs, ModeDecisionContext *ctx,
             ctx->luma_dc_sign_context,
             cand_bf->cand->block_mi.mode,
             full_lambda,
-            false);
+            false,
+            0,
+            NULL);
     } else {
         // Init params
         cand_bf->quant_dc.y[txb_itr] = 0;

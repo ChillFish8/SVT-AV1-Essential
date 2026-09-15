@@ -84,12 +84,32 @@ extern EbErrorType    svt_aom_estimate_transform(PictureControlSet *pcs, ModeDec
                                                  uint32_t bit_depth, TxType transform_type, PlaneType component_type,
                                                  EB_TRANS_COEFF_SHAPE trans_coeff_shape);
 
+struct ModeDecisionCandidateBuffer;
+
+// Pixel-domain buffers the optimize-b refinement needs, bundled so the
+// quantize signature does not grow by a dozen loose parameters
+typedef struct OptimizeBInput {
+    uint8_t                            *input;
+    uint32_t                            input_offset;
+    uint32_t                            input_stride;
+    uint8_t                            *pred;
+    uint32_t                            pred_offset;
+    uint32_t                            pred_stride;
+    uint8_t                            *recon;
+    int32_t                             recon_offset;
+    uint32_t                            recon_stride;
+    uint32_t                            area_width;
+    uint32_t                            area_height;
+    struct ModeDecisionCandidateBuffer *cand_bf;
+} OptimizeBInput;
+
 extern uint8_t svt_aom_quantize_inv_quantize(PictureControlSet *pcs, ModeDecisionContext *ctx, int32_t *coeff,
                                              int32_t *quant_coeff, int32_t *recon_coeff, uint32_t qindex,
                                              int32_t segmentation_qp_offset, TxSize txsize, uint16_t *eob,
                                              uint32_t component_type, uint32_t bit_depth, TxType tx_type,
                                              int16_t txb_skip_context, int16_t dc_sign_context,
-                                             PredictionMode pred_mode, uint32_t lambda, bool is_encode_pass);
+                                             PredictionMode pred_mode, uint32_t lambda, bool is_encode_pass,
+                                             uint8_t optimize_b_available, const OptimizeBInput *ob);
 
 void svt_aom_quantize_inv_quantize_light(PictureControlSet *pcs, int32_t *coeff, int32_t *quant_coeff,
                                          int32_t *recon_coeff, uint32_t qindex, TxSize txsize, uint16_t *eob,

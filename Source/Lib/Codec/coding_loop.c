@@ -433,7 +433,9 @@ static void av1_encode_loop(PictureControlSet *pcs, EncDecContext *ed_ctx, Super
                 md_ctx->luma_dc_sign_context,
                 blk_ptr->block_mi.mode,
                 md_ctx->full_lambda_md[(bit_depth == EB_TEN_BIT) ? EB_10_BIT_MD : EB_8_BIT_MD],
-                true);
+                true,
+                0,
+                NULL);
         }
 
         blk_ptr->y_has_coeff |= (eob[0] > 0) << ed_ctx->txb_itr;
@@ -511,7 +513,9 @@ static void av1_encode_loop(PictureControlSet *pcs, EncDecContext *ed_ctx, Super
                 md_ctx->cb_dc_sign_context,
                 blk_ptr->block_mi.mode,
                 md_ctx->full_lambda_md[(bit_depth == EB_TEN_BIT) ? EB_10_BIT_MD : EB_8_BIT_MD],
-                true);
+                true,
+                0,
+                NULL);
 
             //**********************************
             // Cr
@@ -558,7 +562,9 @@ static void av1_encode_loop(PictureControlSet *pcs, EncDecContext *ed_ctx, Super
                 md_ctx->cr_dc_sign_context,
                 blk_ptr->block_mi.mode,
                 md_ctx->full_lambda_md[(bit_depth == EB_TEN_BIT) ? EB_10_BIT_MD : EB_8_BIT_MD],
-                true);
+                true,
+                0,
+                NULL);
         }
 
         blk_ptr->u_has_coeff |= (eob[1] > 0) << ed_ctx->txb_itr;
