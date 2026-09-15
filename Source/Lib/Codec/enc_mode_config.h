@@ -37,6 +37,8 @@ void svt_aom_sig_deriv_enc_dec_common(SequenceControlSet *scs, PictureControlSet
 
 void svt_aom_sig_deriv_me(SequenceControlSet *scs, PictureParentControlSet *pcs, MeContext *me_ctx);
 
+uint8_t svt_aom_get_is_base(const PictureParentControlSet *ppcs, const SequenceControlSet *scs);
+
 void    svt_aom_sig_deriv_enc_dec(SequenceControlSet *scs, PictureControlSet *pcs, ModeDecisionContext *ctx);
 uint8_t svt_aom_derive_gm_level(PictureParentControlSet *pcs, bool super_res_off);
 
