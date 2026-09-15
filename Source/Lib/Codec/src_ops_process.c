@@ -525,6 +525,9 @@ static void tpl_mc_flow_dispenser_sb_generic(EncodeContext *enc_ctx, SequenceCon
     uint32_t     me_mb_offset = 0;
     TplControls *tpl_ctrls    = &pcs->tpl_ctrls;
 
+    // Balancing feeds TPL an unscaled dep cost so r0 and beta see the raw ratio
+    const int32_t tpl_dep_cost_shift = scs->balancing_ctrls.tpl_dep_cost_unscaled ? 1 : TPL_DEP_COST_SCALE_LOG2;
+
     TxSize tx_size = (tpl_ctrls->subsample_tx == 2) ? sub4_tx_size_array[dispenser_search_level]
         : (tpl_ctrls->subsample_tx == 1)            ? sub2_tx_size_array[dispenser_search_level]
                                                     : tx_size_array[dispenser_search_level];
@@ -939,8 +942,8 @@ static void tpl_mc_flow_dispenser_sb_generic(EncodeContext *enc_ctx, SequenceCon
                 get_quantize_error(&mb_plane, best_coeff, qcoeff, dqcoeff, tx_size, &eob, &recon_error, &sse);
 
                 int rate_cost        = pcs->tpl_ctrls.compute_rate ? rate_estimator(qcoeff, eob, tx_size) : 0;
-                tpl_stats.srcrf_rate = (rate_cost << TPL_DEP_COST_SCALE_LOG2) << tpl_ctrls->subsample_tx;
-                tpl_stats.srcrf_dist = (recon_error << (TPL_DEP_COST_SCALE_LOG2)) << tpl_ctrls->subsample_tx;
+                tpl_stats.srcrf_rate = (rate_cost << tpl_dep_cost_shift) << tpl_ctrls->subsample_tx;
+                tpl_stats.srcrf_dist = (recon_error << (tpl_dep_cost_shift)) << tpl_ctrls->subsample_tx;
             }
             if (scs->tpl_lad_mg > 0) {
                 //store src based stats
@@ -1168,11 +1171,11 @@ static void tpl_mc_flow_dispenser_sb_generic(EncodeContext *enc_ctx, SequenceCon
             }
         }
 
-        tpl_stats.recrf_dist = (recon_error << (TPL_DEP_COST_SCALE_LOG2)) << tpl_ctrls->subsample_tx;
-        tpl_stats.recrf_rate = (rate_cost << TPL_DEP_COST_SCALE_LOG2) << tpl_ctrls->subsample_tx;
+        tpl_stats.recrf_dist = (recon_error << (tpl_dep_cost_shift)) << tpl_ctrls->subsample_tx;
+        tpl_stats.recrf_rate = (rate_cost << tpl_dep_cost_shift) << tpl_ctrls->subsample_tx;
         if (best_mode != NEWMV) {
-            tpl_stats.srcrf_dist = (recon_error << (TPL_DEP_COST_SCALE_LOG2)) << tpl_ctrls->subsample_tx;
-            tpl_stats.srcrf_rate = (rate_cost << TPL_DEP_COST_SCALE_LOG2) << tpl_ctrls->subsample_tx;
+            tpl_stats.srcrf_dist = (recon_error << (tpl_dep_cost_shift)) << tpl_ctrls->subsample_tx;
+            tpl_stats.srcrf_rate = (rate_cost << tpl_dep_cost_shift) << tpl_ctrls->subsample_tx;
         }
 
         tpl_stats.recrf_dist = AOMMAX(tpl_stats.srcrf_dist, tpl_stats.recrf_dist);
