@@ -138,15 +138,57 @@ uint64_t svt_psy_distortion(const uint8_t *input, const uint32_t input_stride, c
     return energy_gap;
 }
 
+// Hadamard-transform the source half of the SATD-only "AC Bias" and store it for later reuse.
+// Split out of psy_distortion_satd_bias_only because optimize-b evaluates many recons against one
+// unchanging source, so this half is loop invariant there. Blocks are written back to back in the
+// same traversal order the distortion uses, so src_coeffs must hold width * height entries rounded
+// up to whole hadamard blocks
+void svt_aom_psy_satd_bias_src_hadamard(const uint8_t *input, const uint32_t input_stride, const uint32_t width,
+                                        const uint32_t height, int32_t *src_coeffs) {
+    int16_t block_as_16bit[64];
+
+    if (width >= 8 && height >= 8) { /* >8x8 */
+        for (uint32_t j = 0; j < height; j += 8) {
+            for (uint32_t i = 0; i < width; i += 8) {
+                const uint8_t *block_input = input + j * input_stride + i;
+
+                for (int h = 0; h < 8; h++) {
+                    for (int w = 0; w < 8; w++) { block_as_16bit[h * 8 + w] = block_input[w]; }
+
+                    block_input += input_stride;
+                }
+
+                svt_aom_hadamard_8x8(block_as_16bit, 8, src_coeffs);
+                src_coeffs += 64;
+            }
+        }
+    } else {
+        for (uint32_t j = 0; j < height; j += 4) { /* 4x4, 4x8, 4x16, 8x4, and 16x4 */
+            for (uint32_t i = 0; i < width; i += 4) {
+                const uint8_t *block_input = input + j * input_stride + i;
+
+                for (int h = 0; h < 4; h++) {
+                    for (int w = 0; w < 4; w++) { block_as_16bit[h * 4 + w] = block_input[w]; }
+
+                    block_input += input_stride;
+                }
+
+                svt_aom_hadamard_4x4(block_as_16bit, 4, src_coeffs);
+                src_coeffs += 16;
+            }
+        }
+    }
+}
+
 // SATD-only variant of "AC Bias", which drops the energy gap term and keeps only the
-// quantisation-matrix weighted SATD difference between source and recon
+// quantisation-matrix weighted SATD difference between source and recon, taking the source
+// hadamard already transformed by svt_aom_psy_satd_bias_src_hadamard
 //
 // 0.0 is disabled for effective_satd_bias
-uint64_t psy_distortion_satd_bias_only(const uint8_t *input, const uint32_t input_stride, const uint8_t *recon,
-                                       const uint32_t recon_stride, const uint32_t width, const uint32_t height,
-                                       const double effective_satd_bias, const QmVal *satd_bias_qmatrix) {
+uint64_t psy_distortion_satd_bias_only_pre_src(const int32_t *src_coeffs, const uint8_t *recon,
+                                               const uint32_t recon_stride, const uint32_t width, const uint32_t height,
+                                               const double effective_satd_bias, const QmVal *satd_bias_qmatrix) {
     uint64_t satd_dist = 0;
-    int32_t  input_coeffs[64];
     int32_t  recon_coeffs[64];
     int16_t  block_as_16bit[64];
 
@@ -157,16 +199,7 @@ uint64_t psy_distortion_satd_bias_only(const uint8_t *input, const uint32_t inpu
 
         for (uint32_t j = 0; j < height; j += 8) {
             for (uint32_t i = 0; i < width; i += 8) {
-                const uint8_t *block_input = input + j * input_stride + i;
                 const uint8_t *recon_input = recon + j * recon_stride + i;
-
-                for (int h = 0; h < 8; h++) {
-                    for (int w = 0; w < 8; w++) { block_as_16bit[h * 8 + w] = block_input[w]; }
-
-                    block_input += input_stride;
-                }
-
-                svt_aom_hadamard_8x8(block_as_16bit, 8, input_coeffs);
 
                 for (int h = 0; h < 8; h++) {
                     for (int w = 0; w < 8; w++) { block_as_16bit[h * 8 + w] = recon_input[w]; }
@@ -176,22 +209,14 @@ uint64_t psy_distortion_satd_bias_only(const uint8_t *input, const uint32_t inpu
 
                 svt_aom_hadamard_8x8(block_as_16bit, 8, recon_coeffs);
 
-                satd_dist += qm_satd_no_rshift(input_coeffs, recon_coeffs, qmatrix_8x8, 64);
+                satd_dist += qm_satd_no_rshift(src_coeffs, recon_coeffs, qmatrix_8x8, 64);
+                src_coeffs += 64;
             }
         }
     } else {
         for (uint32_t j = 0; j < height; j += 4) { /* 4x4, 4x8, 4x16, 8x4, and 16x4 */
             for (uint32_t i = 0; i < width; i += 4) {
-                const uint8_t *block_input = input + j * input_stride + i;
                 const uint8_t *recon_input = recon + j * recon_stride + i;
-
-                for (int h = 0; h < 4; h++) {
-                    for (int w = 0; w < 4; w++) { block_as_16bit[h * 4 + w] = block_input[w]; }
-
-                    block_input += input_stride;
-                }
-
-                svt_aom_hadamard_4x4(block_as_16bit, 4, input_coeffs);
 
                 for (int h = 0; h < 4; h++) {
                     for (int w = 0; w < 4; w++) { block_as_16bit[h * 4 + w] = recon_input[w]; }
@@ -201,13 +226,28 @@ uint64_t psy_distortion_satd_bias_only(const uint8_t *input, const uint32_t inpu
 
                 svt_aom_hadamard_4x4(block_as_16bit, 4, recon_coeffs);
 
-                satd_dist += qm_satd_no_rshift(input_coeffs, recon_coeffs, satd_bias_qmatrix, 16);
+                satd_dist += qm_satd_no_rshift(src_coeffs, recon_coeffs, satd_bias_qmatrix, 16);
+                src_coeffs += 16;
             }
         }
     }
 
     // Undo the AOM_QM_BITS scale the weighting carries
     return llrint(satd_dist * (effective_satd_bias * ((double)1 / 32)));
+}
+
+// SATD-only variant of "AC Bias", which drops the energy gap term and keeps only the
+// quantisation-matrix weighted SATD difference between source and recon
+//
+// 0.0 is disabled for effective_satd_bias
+uint64_t psy_distortion_satd_bias_only(const uint8_t *input, const uint32_t input_stride, const uint8_t *recon,
+                                       const uint32_t recon_stride, const uint32_t width, const uint32_t height,
+                                       const double effective_satd_bias, const QmVal *satd_bias_qmatrix) {
+    DECLARE_ALIGNED(64, int32_t, src_coeffs[MAX_TX_SQUARE]);
+
+    svt_aom_psy_satd_bias_src_hadamard(input, input_stride, width, height, src_coeffs);
+    return psy_distortion_satd_bias_only_pre_src(
+        src_coeffs, recon, recon_stride, width, height, effective_satd_bias, satd_bias_qmatrix);
 }
 
 #if CONFIG_ENABLE_HIGH_BIT_DEPTH
@@ -258,11 +298,33 @@ uint64_t svt_psy_distortion_hbd(const uint16_t *input, const uint32_t input_stri
 // High bit-depth version of the SATD-only "AC Bias"
 //
 // 0.0 is disabled for effective_satd_bias
-uint64_t psy_distortion_satd_bias_only_hbd(const uint16_t *input, const uint32_t input_stride, const uint16_t *recon,
-                                           const uint32_t recon_stride, const uint32_t width, const uint32_t height,
-                                           const double effective_satd_bias, const QmVal *satd_bias_qmatrix) {
+// High bit-depth counterpart of svt_aom_psy_satd_bias_src_hadamard
+void svt_aom_psy_satd_bias_src_hadamard_hbd(const uint16_t *input, const uint32_t input_stride, const uint32_t width,
+                                            const uint32_t height, int32_t *src_coeffs) {
+    if (width >= 8 && height >= 8) { /* >8x8 */
+        for (uint32_t j = 0; j < height; j += 8) {
+            for (uint32_t i = 0; i < width; i += 8) {
+                svt_aom_highbd_hadamard_8x8((int16_t *)input + j * input_stride + i, input_stride, src_coeffs);
+                src_coeffs += 64;
+            }
+        }
+    } else {
+        for (uint64_t j = 0; j < height; j += 4) { /* 4x4, 4x8, 4x16, 8x4, and 16x4 */
+            for (uint64_t i = 0; i < width; i += 4) {
+                // HBD coefficients can fit in 16 bits, so the regular Hadamard 4x4 function can be used here safely
+                svt_aom_hadamard_4x4((int16_t *)input + j * input_stride + i, input_stride, src_coeffs);
+                src_coeffs += 16;
+            }
+        }
+    }
+}
+
+// High bit-depth counterpart of psy_distortion_satd_bias_only_pre_src
+uint64_t psy_distortion_satd_bias_only_hbd_pre_src(const int32_t *src_coeffs, const uint16_t *recon,
+                                                   const uint32_t recon_stride, const uint32_t width,
+                                                   const uint32_t height, const double effective_satd_bias,
+                                                   const QmVal *satd_bias_qmatrix) {
     uint64_t satd_dist = 0;
-    int32_t  input_coeffs[64];
     int32_t  recon_coeffs[64];
 
     if (width >= 8 && height >= 8) { /* >8x8 */
@@ -272,28 +334,36 @@ uint64_t psy_distortion_satd_bias_only_hbd(const uint16_t *input, const uint32_t
 
         for (uint32_t j = 0; j < height; j += 8) {
             for (uint32_t i = 0; i < width; i += 8) {
-                svt_aom_highbd_hadamard_8x8((int16_t *)input + j * input_stride + i, input_stride, input_coeffs);
-
                 svt_aom_highbd_hadamard_8x8((int16_t *)recon + j * recon_stride + i, recon_stride, recon_coeffs);
 
-                satd_dist += qm_satd_no_rshift(input_coeffs, recon_coeffs, qmatrix_8x8, 64);
+                satd_dist += qm_satd_no_rshift(src_coeffs, recon_coeffs, qmatrix_8x8, 64);
+                src_coeffs += 64;
             }
         }
     } else {
         for (uint64_t j = 0; j < height; j += 4) { /* 4x4, 4x8, 4x16, 8x4, and 16x4 */
             for (uint64_t i = 0; i < width; i += 4) {
                 // HBD coefficients can fit in 16 bits, so the regular Hadamard 4x4 function can be used here safely
-                svt_aom_hadamard_4x4((int16_t *)input + j * input_stride + i, input_stride, input_coeffs);
-
                 svt_aom_hadamard_4x4((int16_t *)recon + j * recon_stride + i, recon_stride, recon_coeffs);
 
-                satd_dist += qm_satd_no_rshift(input_coeffs, recon_coeffs, satd_bias_qmatrix, 16);
+                satd_dist += qm_satd_no_rshift(src_coeffs, recon_coeffs, satd_bias_qmatrix, 16);
+                src_coeffs += 16;
             }
         }
     }
 
     // Scaled to approximately match equivalent 8-bit strengths
     return llrint(satd_dist * (effective_satd_bias * ((double)1 / 8)));
+}
+
+uint64_t psy_distortion_satd_bias_only_hbd(const uint16_t *input, const uint32_t input_stride, const uint16_t *recon,
+                                           const uint32_t recon_stride, const uint32_t width, const uint32_t height,
+                                           const double effective_satd_bias, const QmVal *satd_bias_qmatrix) {
+    DECLARE_ALIGNED(64, int32_t, src_coeffs[MAX_TX_SQUARE]);
+
+    svt_aom_psy_satd_bias_src_hadamard_hbd(input, input_stride, width, height, src_coeffs);
+    return psy_distortion_satd_bias_only_hbd_pre_src(
+        src_coeffs, recon, recon_stride, width, height, effective_satd_bias, satd_bias_qmatrix);
 }
 #endif
 
@@ -330,6 +400,38 @@ uint64_t get_psy_dist_satd_bias_only(const void *s, const uint32_t so, const uin
     else
         return psy_distortion_satd_bias_only(
             (const uint8_t *)s + so, sp, (const uint8_t *)r + ro, rp, w, h, effective_satd_bias, satd_bias_qmatrix);
+}
+
+// Source-side half of get_psy_dist_satd_bias_only, hoisted out for callers that score many recons
+// against one source. src_coeffs must hold MAX_TX_SQUARE entries
+void svt_aom_get_psy_satd_bias_src_hadamard(const void *s, const uint32_t so, const uint32_t sp, const uint32_t w,
+                                            const uint32_t h, const uint8_t is_hbd, int32_t *src_coeffs) {
+    if (is_hbd)
+#if CONFIG_ENABLE_HIGH_BIT_DEPTH
+        svt_aom_psy_satd_bias_src_hadamard_hbd((const uint16_t *)s + so, sp, w, h, src_coeffs);
+#else
+        (void)src_coeffs;
+#endif
+    else
+        svt_aom_psy_satd_bias_src_hadamard((const uint8_t *)s + so, sp, w, h, src_coeffs);
+}
+
+// Recon-side half of get_psy_dist_satd_bias_only, taking the source hadamard computed by
+// svt_aom_get_psy_satd_bias_src_hadamard for the same source, dimensions and bit depth
+uint64_t get_psy_dist_satd_bias_only_pre_src(const int32_t *src_coeffs, const void *r, const uint32_t ro,
+                                             const uint32_t rp, const uint32_t w, const uint32_t h,
+                                             const uint8_t is_hbd, double effective_satd_bias,
+                                             const QmVal *satd_bias_qmatrix) {
+    if (is_hbd)
+#if CONFIG_ENABLE_HIGH_BIT_DEPTH
+        return psy_distortion_satd_bias_only_hbd_pre_src(
+            src_coeffs, (uint16_t *)r + ro, rp, w, h, effective_satd_bias, satd_bias_qmatrix);
+#else
+        return 0;
+#endif
+    else
+        return psy_distortion_satd_bias_only_pre_src(
+            src_coeffs, (const uint8_t *)r + ro, rp, w, h, effective_satd_bias, satd_bias_qmatrix);
 }
 
 /*

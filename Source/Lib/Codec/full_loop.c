@@ -1527,7 +1527,7 @@ static uint64_t slow_optimize_b_calculate_rate(PictureControlSet *pcs, ModeDecis
 // Pixel-domain distortion of the trial coefficients, reconstructed through the inverse tx
 static uint64_t slow_optimize_b_calculate_dist(PictureControlSet *pcs, ModeDecisionContext *ctx, int32_t *recon_coeff,
                                                TxSize txsize, TxType tx_type, int32_t plane, uint16_t eob,
-                                               const OptimizeBInput *ob) {
+                                               const OptimizeBInput *ob, const int32_t *psy_src_coeffs) {
     uint8_t *recon        = ob->recon;
     int32_t  recon_offset = ob->recon_offset;
     uint32_t recon_stride = ob->recon_stride;
@@ -1570,17 +1570,17 @@ static uint64_t slow_optimize_b_calculate_dist(PictureControlSet *pcs, ModeDecis
                                                      0,
                                                      0,
                                                      0);
-    dist += get_psy_dist_satd_bias_only(ob->input,
-                                        ob->input_offset,
-                                        ob->input_stride,
-                                        recon,
-                                        recon_offset,
-                                        recon_stride,
-                                        ob->area_width,
-                                        ob->area_height,
-                                        ob->is_hbd,
-                                        0.5,
-                                        svt_aom_get_satd_bias_qmatrix());
+    // The source half of the satd bias is the same for every trial, so it is transformed once by
+    // the caller and only the recon half is redone here
+    dist += get_psy_dist_satd_bias_only_pre_src(psy_src_coeffs,
+                                                recon,
+                                                recon_offset,
+                                                recon_stride,
+                                                ob->area_width,
+                                                ob->area_height,
+                                                ob->is_hbd,
+                                                0.5,
+                                                svt_aom_get_satd_bias_qmatrix());
     // Match the distortion scale the rdoq lambda expects
     dist <<= 4;
     return dist;
@@ -1603,10 +1603,15 @@ static void slow_optimize_b(PictureControlSet *pcs, ModeDecisionContext *ctx, in
                             const ScanOrder *scan_order, const int16_t *zbin_ptr, const OptimizeBInput *ob,
                             int16_t txb_skip_context, int16_t dc_sign_context, uint32_t lambda) {
     // Same shift av1_get_tx_scale_tab gives QuantParam, needed by the zbin comparison
-    const int16_t log_scale    = (int16_t)av1_get_tx_scale_tab[txsize];
-    uint64_t      current_rate = slow_optimize_b_calculate_rate(
+    const int16_t log_scale = (int16_t)av1_get_tx_scale_tab[txsize];
+    // Hadamard of the source block, which no trial can change, hoisted out of the whole loop
+    DECLARE_ALIGNED(64, int32_t, psy_src_coeffs[MAX_TX_SQUARE]);
+    svt_aom_get_psy_satd_bias_src_hadamard(
+        ob->input, ob->input_offset, ob->input_stride, ob->area_width, ob->area_height, ob->is_hbd, psy_src_coeffs);
+    uint64_t current_rate = slow_optimize_b_calculate_rate(
         pcs, ctx, quant_coeff, txsize, tx_type, plane, *eob, ob->cand_bf, txb_skip_context, dc_sign_context);
-    uint64_t current_dist = slow_optimize_b_calculate_dist(pcs, ctx, recon_coeff, txsize, tx_type, plane, *eob, ob);
+    uint64_t current_dist = slow_optimize_b_calculate_dist(
+        pcs, ctx, recon_coeff, txsize, tx_type, plane, *eob, ob, psy_src_coeffs);
     // Budget of zbin trials for this tx, so large blocks are not walked exhaustively
     uint16_t       zbin_available    = av1_get_max_eob(txsize) >> 5;
     const uint16_t eob_compare_limit = AOMMAX(av1_get_max_eob(txsize) >> 3, 1);
@@ -1645,7 +1650,7 @@ static void slow_optimize_b(PictureControlSet *pcs, ModeDecisionContext *ctx, in
                                                                                 txb_skip_context,
                                                                                 dc_sign_context);
                 const uint64_t new_dist        = slow_optimize_b_calculate_dist(
-                    pcs, ctx, recon_coeff, txsize, tx_type, plane, new_eob_compare, ob);
+                    pcs, ctx, recon_coeff, txsize, tx_type, plane, new_eob_compare, ob, psy_src_coeffs);
                 if (slow_optimize_b_compare_cost(lambda, new_rate, new_dist, current_rate, current_dist)) {
                     if (new_eob != *eob) {
                         *eob = new_eob;
