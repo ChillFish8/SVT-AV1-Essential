@@ -3998,11 +3998,19 @@ static void set_param_based_on_input(SequenceControlSet *scs)
             scs->static_config.balancing_r0_dampening_layer = 1;
     }
 
-    // Balancing replaces these, it is not meant to stack with them
-    if (scs->static_config.balancing_q_bias && scs->static_config.qp_scale_compress_strength)
+    // Balancing reshapes the layer scale itself, so the compression is left out of the derived default
+    const bool qp_scale_compress_strength_set = scs->static_config.qp_scale_compress_strength != UINT8_MAX;
+    if (!qp_scale_compress_strength_set) {
+        if (scs->static_config.balancing_q_bias)
+            scs->static_config.qp_scale_compress_strength = 0;
+        else
+            scs->static_config.qp_scale_compress_strength = 1;
+    }
+
+    // Balancing replaces this, it is not meant to stack with it
+    if (scs->static_config.balancing_q_bias && qp_scale_compress_strength_set &&
+        scs->static_config.qp_scale_compress_strength)
         SVT_WARN("balancing-q-bias is intended to replace qp-scale-compress-strength, not to be used with it\n");
-    if (scs->static_config.balancing_q_bias && scs->static_config.luminance_qp_bias)
-        SVT_WARN("balancing-q-bias is intended to replace luminance-qp-bias, not to be used with it\n");
 
     scs->static_config.enable_overlays = !scs->static_config.enable_tf ||
         (scs->static_config.rate_control_mode != SVT_AV1_RC_MODE_CQP_OR_CRF) ?

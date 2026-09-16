@@ -815,7 +815,7 @@ ConfigDescription config_entry_rc[] = {
      "Bias towards decreased/increased sharpness, default is 1 [-7 to 7]"},
     // QP scale compress strength
     {QP_SCALE_COMPRESS_STRENGTH_TOKEN,
-     "QP scale compress strength, default is 1 [0-8]"},
+     "QP scale compress strength, default is derived from --balancing-q-bias [0-8]"},
     // Balancing model
     {BALANCING_Q_BIAS_TOKEN,
      "Replaces the QP allocation with the balancing model, default is 0 [0-1]"},
@@ -1125,7 +1125,8 @@ ConfigDescription fconfig_entry_rc[] = {
     // Sharpness
     {SHARPNESS_TOKEN, "Bias towards decreased/increased sharpness, default is 1 [-7 to 7]"},
     // QP scale compress strength
-    {QP_SCALE_COMPRESS_STRENGTH_TOKEN, "QP scale compress strength, default is 1 [0-8]"},
+    {QP_SCALE_COMPRESS_STRENGTH_TOKEN,
+     "QP scale compress strength, default is derived from --balancing-q-bias [0-8]"},
     // Balancing model
     {BALANCING_Q_BIAS_TOKEN, "Replaces the QP allocation with the balancing model, default is 0 [0-1]"},
     {BALANCING_R0_DAMPENING_LAYER_TOKEN,

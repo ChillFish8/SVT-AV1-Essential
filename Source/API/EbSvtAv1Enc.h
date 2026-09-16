@@ -954,7 +954,8 @@ typedef struct EbSvtAv1EncConfiguration {
     * 0: no compression, original SVT-AV1 scaling
     * 1-8: enable compression, the higher the number the stronger the compression
     *      (different frame quality fluctuation/mean quality tradeoffs)
-    * Default is 1
+    * UINT8_MAX: derive from balancing_q_bias
+    * Default is 1 with balancing_q_bias off, 0 with it on
     */
     uint8_t qp_scale_compress_strength;
 

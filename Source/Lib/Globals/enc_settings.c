@@ -889,7 +889,8 @@ EbErrorType svt_av1_verify_settings(SequenceControlSet *scs) {
         return_error = EB_ErrorBadParameter;
     }
 
-    if (config->qp_scale_compress_strength > 8) {
+    // UINT8_MAX is the unset sentinel resolved later based on balancing-q-bias
+    if (config->qp_scale_compress_strength != UINT8_MAX && config->qp_scale_compress_strength > 8) {
         SVT_ERROR("QP scale compress strength must be between 0 and 8\n");
         return_error = EB_ErrorBadParameter;
     }
@@ -1105,7 +1106,7 @@ EbErrorType svt_av1_set_default_params(EbSvtAv1EncConfiguration *config_ptr) {
     config_ptr->sharpness                         = 1;
     config_ptr->lossless                          = false;
     config_ptr->avif                              = false;
-    config_ptr->qp_scale_compress_strength        = 1;
+    config_ptr->qp_scale_compress_strength        = UINT8_MAX;
     config_ptr->balancing_q_bias                  = 0;
     config_ptr->balancing_r0_dampening_layer      = INT8_MIN;
     config_ptr->optimize_b_mode                   = 0;
