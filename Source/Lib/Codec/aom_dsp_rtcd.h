@@ -56,6 +56,12 @@ extern "C" {
     RTCD_EXTERN uint64_t(*qm_satd_no_rshift)(const TranLow *input_coeffs, const TranLow *recon_coeffs, const QmVal *satd_bias_qmatrix, const uint16_t size);
     uint64_t qm_satd_tiled_no_rshift_c(const TranLow *src_coeffs, const TranLow *recon_coeffs, const QmVal *satd_bias_qmatrix, const uint16_t block_size, const uint16_t n_blocks);
     RTCD_EXTERN uint64_t(*qm_satd_tiled_no_rshift)(const TranLow *src_coeffs, const TranLow *recon_coeffs, const QmVal *satd_bias_qmatrix, const uint16_t block_size, const uint16_t n_blocks);
+    void svt_aom_optimize_b_apply_delta_c(const int16_t *res_cur, int16_t *res_try, const float *col_scaled, const float *row, const uint8_t *pred, uint32_t pred_stride, uint8_t *recon, uint32_t recon_stride, uint32_t width, uint32_t height, bool is_hbd);
+    RTCD_EXTERN void(*svt_aom_optimize_b_apply_delta)(const int16_t *res_cur, int16_t *res_try, const float *col_scaled, const float *row, const uint8_t *pred, uint32_t pred_stride, uint8_t *recon, uint32_t recon_stride, uint32_t width, uint32_t height, bool is_hbd);
+    void svt_aom_optimize_b_seed_residual_c(const float *col, const float *row, const int32_t *coeff, uint32_t packed_width, uint32_t packed_height, uint32_t width, uint32_t height, int16_t *res);
+    RTCD_EXTERN void(*svt_aom_optimize_b_seed_residual)(const float *col, const float *row, const int32_t *coeff, uint32_t packed_width, uint32_t packed_height, uint32_t width, uint32_t height, int16_t *res);
+    void svt_aom_optimize_b_render_c(const int16_t *res, const uint8_t *pred, uint32_t pred_stride, uint8_t *recon, uint32_t recon_stride, uint32_t width, uint32_t height, bool is_hbd);
+    RTCD_EXTERN void(*svt_aom_optimize_b_render)(const int16_t *res, const uint8_t *pred, uint32_t pred_stride, uint8_t *recon, uint32_t recon_stride, uint32_t width, uint32_t height, bool is_hbd);
 #if CONFIG_ENABLE_HIGH_BIT_DEPTH
     int64_t svt_aom_highbd_sse_c(const uint8_t *a8, int a_stride, const uint8_t *b8, int b_stride, int width, int height);
     RTCD_EXTERN int64_t(*svt_aom_highbd_sse)(const uint8_t *a8, int a_stride, const uint8_t *b8, int b_stride, int width, int height);
@@ -1436,6 +1442,9 @@ extern "C" {
     int64_t svt_aom_sse_avx2(const uint8_t *a, int a_stride, const uint8_t *b, int b_stride, int width, int height);
     uint64_t qm_satd_no_rshift_avx2(const TranLow *input_coeffs, const TranLow *recon_coeffs, const QmVal *satd_bias_qmatrix, const uint16_t size);
     uint64_t qm_satd_tiled_no_rshift_avx2(const TranLow *src_coeffs, const TranLow *recon_coeffs, const QmVal *satd_bias_qmatrix, const uint16_t block_size, const uint16_t n_blocks);
+    void svt_aom_optimize_b_apply_delta_avx2(const int16_t *res_cur, int16_t *res_try, const float *col_scaled, const float *row, const uint8_t *pred, uint32_t pred_stride, uint8_t *recon, uint32_t recon_stride, uint32_t width, uint32_t height, bool is_hbd);
+    void svt_aom_optimize_b_seed_residual_avx2(const float *col, const float *row, const int32_t *coeff, uint32_t packed_width, uint32_t packed_height, uint32_t width, uint32_t height, int16_t *res);
+    void svt_aom_optimize_b_render_avx2(const int16_t *res, const uint8_t *pred, uint32_t pred_stride, uint8_t *recon, uint32_t recon_stride, uint32_t width, uint32_t height, bool is_hbd);
 #if EN_AVX512_SUPPORT
     uint64_t qm_satd_no_rshift_avx512(const TranLow *input_coeffs, const TranLow *recon_coeffs, const QmVal *satd_bias_qmatrix, const uint16_t size);
     uint64_t qm_satd_tiled_no_rshift_avx512(const TranLow *src_coeffs, const TranLow *recon_coeffs, const QmVal *satd_bias_qmatrix, const uint16_t block_size, const uint16_t n_blocks);

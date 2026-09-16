@@ -38,6 +38,7 @@ endif()
 
 set(all_files
     ac_bias_avx2.c
+    optimize_b_avx2.c
     aom_subpixel_8t_intrin_avx2.c
     av1_inv_txfm_avx2.c
     av1_inv_txfm_avx2.h

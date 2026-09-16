@@ -18,6 +18,7 @@
 #include "sequence_control_set.h"
 #include "utility.h"
 #include "ac_bias.h"
+#include "optimize_b_basis.h"
 
 const int av1_get_tx_scale_tab[TX_SIZES_ALL] = {0, 0, 0, 1, 2, 0, 0, 0, 0, 1, 1, 2, 2, 0, 0, 0, 0, 1, 1};
 
@@ -1524,36 +1525,9 @@ static uint64_t slow_optimize_b_calculate_rate(PictureControlSet *pcs, ModeDecis
         rate <<= ctx->subres_ctrls.step;
     return rate;
 }
-// Pixel-domain distortion of the trial coefficients, reconstructed through the inverse tx
-static uint64_t slow_optimize_b_calculate_dist(PictureControlSet *pcs, ModeDecisionContext *ctx, int32_t *recon_coeff,
-                                               TxSize txsize, TxType tx_type, int32_t plane, uint16_t eob,
-                                               const OptimizeBInput *ob, const int32_t *psy_src_coeffs) {
-    uint8_t *recon        = ob->recon;
-    int32_t  recon_offset = ob->recon_offset;
-    uint32_t recon_stride = ob->recon_stride;
-    if (eob != 0)
-        svt_aom_inv_transform_recon_wrapper(pcs,
-                                            ctx,
-                                            ob->pred,
-                                            ob->pred_offset,
-                                            ob->pred_stride,
-                                            recon,
-                                            recon_offset,
-                                            recon_stride,
-                                            recon_coeff,
-                                            0,
-                                            ob->is_hbd,
-                                            txsize,
-                                            tx_type,
-                                            plane,
-                                            eob);
-    else {
-        // No coefficients left, so the prediction is the reconstruction
-        recon        = ob->pred;
-        recon_offset = ob->pred_offset;
-        recon_stride = ob->pred_stride;
-    }
-
+// Distortion of a recon already sitting in the given buffer, against the source in ob
+static uint64_t slow_optimize_b_measure_dist(const uint8_t *recon, int32_t recon_offset, uint32_t recon_stride,
+                                             const OptimizeBInput *ob, const int32_t *psy_src_coeffs) {
     uint64_t dist;
     // block_mi is dereferenced unconditionally by the facade; tx_bias 0 leaves it unread
     dist = svt_spatial_full_distortion_kernel_facade(ob->input,
@@ -1584,6 +1558,96 @@ static uint64_t slow_optimize_b_calculate_dist(PictureControlSet *pcs, ModeDecis
     // Match the distortion scale the rdoq lambda expects
     dist <<= 4;
     return dist;
+}
+// Pixel-domain distortion of the trial coefficients, reconstructed through the inverse tx
+static uint64_t slow_optimize_b_calculate_dist(PictureControlSet *pcs, ModeDecisionContext *ctx, int32_t *recon_coeff,
+                                               TxSize txsize, TxType tx_type, int32_t plane, uint16_t eob,
+                                               const OptimizeBInput *ob, const int32_t *psy_src_coeffs) {
+    uint8_t *recon        = ob->recon;
+    int32_t  recon_offset = ob->recon_offset;
+    uint32_t recon_stride = ob->recon_stride;
+    if (eob != 0)
+        svt_aom_inv_transform_recon_wrapper(pcs,
+                                            ctx,
+                                            ob->pred,
+                                            ob->pred_offset,
+                                            ob->pred_stride,
+                                            recon,
+                                            recon_offset,
+                                            recon_stride,
+                                            recon_coeff,
+                                            0,
+                                            ob->is_hbd,
+                                            txsize,
+                                            tx_type,
+                                            plane,
+                                            eob);
+    else {
+        // No coefficients left, so the prediction is the reconstruction
+        recon        = ob->pred;
+        recon_offset = ob->pred_offset;
+        recon_stride = ob->pred_stride;
+    }
+    return slow_optimize_b_measure_dist(recon, recon_offset, recon_stride, ob, psy_src_coeffs);
+}
+// The pixel-domain residual of the current coefficients, kept so a trial can drop one coefficient
+// by subtracting its separable footprint instead of rerunning the inverse transform. Two buffers
+// so an accepted trial becomes current by a pointer swap and a rejected one costs nothing
+typedef struct SlowOptimizeBResidual {
+    OptimizeBBasis basis;
+    int16_t       *cur;
+    int16_t       *trial;
+    uint32_t       width;
+    uint32_t       height;
+    uint32_t       packed_width; // coefficient stride, at most 32
+    bool           active;
+} SlowOptimizeBResidual;
+// Seeds the residual from the coefficients through the basis and renders the starting recon
+// from it. Seeding from the exact recon instead would carry that recon's rounding into every
+// trial on top of the trial's own, which biased the trials toward rejection
+static void slow_optimize_b_residual_seed(SlowOptimizeBResidual *res, const OptimizeBInput *ob,
+                                          const int32_t *recon_coeff) {
+    svt_aom_optimize_b_seed_residual(res->basis.col,
+                                     res->basis.row,
+                                     recon_coeff,
+                                     res->packed_width,
+                                     AOMMIN(res->height, 32),
+                                     res->width,
+                                     res->height,
+                                     res->cur);
+    const uint8_t *pred  = ob->is_hbd ? (const uint8_t *)(((const uint16_t *)ob->pred) + ob->pred_offset)
+                                      : ob->pred + ob->pred_offset;
+    uint8_t       *recon = ob->is_hbd ? (uint8_t *)(((uint16_t *)ob->recon) + ob->recon_offset)
+                                      : ob->recon + ob->recon_offset;
+    svt_aom_optimize_b_render(
+        res->cur, pred, ob->pred_stride, recon, ob->recon_stride, res->width, res->height, ob->is_hbd);
+}
+// Recon with coefficient rc, currently worth value, dropped, written where the inverse transform
+// would have put it
+static void slow_optimize_b_residual_trial(SlowOptimizeBResidual *res, const OptimizeBInput *ob, int16_t rc,
+                                           TranLow value) {
+    const uint32_t r = rc / res->packed_width;
+    const uint32_t c = rc % res->packed_width;
+    float          col_scaled[MAX_TX_SIZE];
+    // One float product per entry, rounded once in the kernel, so every platform lands on the same
+    // recon and the refinement's decisions do not depend on the asm level
+    const float value_f = (float)value;
+    for (uint32_t i = 0; i < res->height; i++) col_scaled[i] = value_f * res->basis.col[r * res->height + i];
+    const uint8_t *pred  = ob->is_hbd ? (const uint8_t *)(((const uint16_t *)ob->pred) + ob->pred_offset)
+                                      : ob->pred + ob->pred_offset;
+    uint8_t       *recon = ob->is_hbd ? (uint8_t *)(((uint16_t *)ob->recon) + ob->recon_offset)
+                                      : ob->recon + ob->recon_offset;
+    svt_aom_optimize_b_apply_delta(res->cur,
+                                   res->trial,
+                                   col_scaled,
+                                   res->basis.row + c * res->width,
+                                   pred,
+                                   ob->pred_stride,
+                                   recon,
+                                   ob->recon_stride,
+                                   res->width,
+                                   res->height,
+                                   ob->is_hbd);
 }
 // True when the trial wins on RD cost, with distortion as the tie-break
 static bool slow_optimize_b_compare_cost(uint32_t lambda, uint64_t incoming_rate, uint64_t incoming_dist,
@@ -1617,8 +1681,25 @@ static void slow_optimize_b(PictureControlSet *pcs, ModeDecisionContext *ctx, in
         ob->input, ob->input_offset, ob->input_stride, ob->area_width, ob->area_height, ob->is_hbd, psy_src_coeffs);
     uint64_t current_rate = slow_optimize_b_calculate_rate(
         pcs, ctx, quant_coeff, txsize, tx_type, plane, *eob, ob->cand_bf, txb_skip_context, dc_sign_context);
-    uint64_t current_dist = slow_optimize_b_calculate_dist(
-        pcs, ctx, recon_coeff, txsize, tx_type, plane, *eob, ob, psy_src_coeffs);
+    // Trials on the larger transforms run on the incremental residual, which also supplies the
+    // starting recon, the rest keep the exact inverse transform throughout
+    DECLARE_ALIGNED(32, int16_t, residual_a[MAX_TX_SQUARE]);
+    DECLARE_ALIGNED(32, int16_t, residual_b[MAX_TX_SQUARE]);
+    SlowOptimizeBResidual residual;
+    residual.cur          = residual_a;
+    residual.trial        = residual_b;
+    residual.width        = tx_size_wide[txsize];
+    residual.height       = tx_size_high[txsize];
+    residual.packed_width = AOMMIN(residual.width, 32);
+    residual.active       = *eob != 0 && svt_aom_optimize_b_basis_get(txsize, tx_type, &residual.basis);
+    uint64_t current_dist;
+    if (residual.active) {
+        slow_optimize_b_residual_seed(&residual, ob, recon_coeff);
+        current_dist = slow_optimize_b_measure_dist(
+            ob->recon, ob->recon_offset, ob->recon_stride, ob, psy_src_coeffs);
+    } else
+        current_dist = slow_optimize_b_calculate_dist(
+            pcs, ctx, recon_coeff, txsize, tx_type, plane, *eob, ob, psy_src_coeffs);
     const uint16_t eob_compare_limit = AOMMAX(av1_get_max_eob(txsize) >> 3, 1);
     for (int32_t i = (int32_t)(*eob) - 1; i >= 0; i--) {
         const int16_t rc = scan_order->scan[i];
@@ -1654,9 +1735,24 @@ static void slow_optimize_b(PictureControlSet *pcs, ModeDecisionContext *ctx, in
                                                                                 ob->cand_bf,
                                                                                 txb_skip_context,
                                                                                 dc_sign_context);
-                const uint64_t new_dist        = slow_optimize_b_calculate_dist(
-                    pcs, ctx, recon_coeff, txsize, tx_type, plane, new_eob_compare, ob, psy_src_coeffs);
+                uint64_t new_dist;
+                // A trial that empties the block is exact either way, so it keeps the prediction path
+                const bool incremental = residual.active && new_eob_compare != 0;
+                if (incremental) {
+                    slow_optimize_b_residual_trial(&residual, ob, rc, pre_recon);
+                    new_dist = slow_optimize_b_measure_dist(
+                        ob->recon, ob->recon_offset, ob->recon_stride, ob, psy_src_coeffs);
+                } else
+                    new_dist = slow_optimize_b_calculate_dist(
+                        pcs, ctx, recon_coeff, txsize, tx_type, plane, new_eob_compare, ob, psy_src_coeffs);
                 if (slow_optimize_b_compare_cost(lambda, new_rate, new_dist, current_rate, current_dist)) {
+                    if (incremental) {
+                        int16_t *accepted = residual.trial;
+                        residual.trial      = residual.cur;
+                        residual.cur      = accepted;
+                    } else if (residual.active)
+                        // The block is now empty, so no trial can follow and the residual is done
+                        residual.active = false;
                     if (new_eob != *eob) {
                         *eob = new_eob;
                         i    = (int32_t)(*eob); // - 1 + 1

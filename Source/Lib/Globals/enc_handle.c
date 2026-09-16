@@ -19,6 +19,7 @@
 #include <stdio.h>
 #include <stdint.h>
 
+#include "optimize_b_basis.h"
 #include "EbVersion.h"
 #include "svt_threads.h"
 #include "utility.h"
@@ -1274,6 +1275,7 @@ static ONCE_ROUTINE(init_global_tables) {
     init_fn_ptr();
     svt_av1_init_wedge_masks();
     init_ii_masks();
+    svt_aom_optimize_b_basis_init();
     ONCE_ROUTINE_EPILOG;
 }
 DEFINE_ONCE(global_tables_once);
