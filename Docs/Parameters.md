@@ -117,6 +117,7 @@ For more information on valid values for specific keys, refer to the [EbEncSetti
 | **VarianceBoostStrength**        | --variance-boost-strength        | [1-4]      | 1           | Set variance curve strength for variance boost feature [1: mild [Default], 2: gentle, 3: medium, 4: aggressive]                                      |
 | **VarianceOctile**               | --variance-octile                | [1-8]      | 4           | Set variance algorithm 8x8 block selectivity level [1: 1st octile, 4: median [Default], 6: 6th octile, 8: maximum]                                   |
 | **VarianceBoostCurve**           | --variance-boost-curve           | [0-3]      | 0, 3 (PQ)   | Variance Boost curve [0: default, 1: alternative, 2: still image, 3: HDR PQ transfer]                                                                |
+| **DarkBoostStrength**            | --dark-boost-strength            | [0-4]      | 0           | Extra Variance Boost for dark, low-contrast superblocks, requires Variance Boost, not applied on curve 3 [0: off, 1-4: increasing boost]             |
 | **AdaptiveQuantization**         | --aq-mode                        | [0-2]      | 2           | Set adaptive QP level [0: off, 1: variance base using AV1 segments, 2: deltaq pred efficiency]                                                       |
 | **QpScaleCompressStrength**      | --qp-scale-compress-strength     | [0-8]      | 0, 1 (off)  | Sets the QP compression strength for less quality variation across frames in a mini-gop [0: off, 8: max]; derived from balancing-q-bias when unset   |
 | **BalancingQBias**               | --balancing-q-bias               | [0-1]      | 0           | Replaces the QP allocation with the balancing model, reshaping TPL r0 and per-SB beta [0: off, 1: on]                                                |
@@ -648,6 +649,23 @@ Adaptive film grain is disabled by default.
 - **Moderate values** (1.0-1.5) help retain sharpness and acuity of textures and scenes with complex motion.
 
 - **High values** (4.0-6.0, together with disabling temporal filtering and CDEF) can dramatically improve film grain and noise retention.
+
+### `--dark-boost-strength [0-4]`
+`--dark-boost-strength` adds an extra, luma-weighted boost on top of Variance Boost for superblocks that are both dark and low in contrast, the regions where thin line art a few code values above a near-black fill is otherwise quantized away.
+The boost is applied through the same per-superblock delta-q path as Variance Boost, so the encoder's rate-distortion decisions follow it as well as the quantizer step.
+It requires Variance Boost to be enabled and is not applied on the PQ curve (`--variance-boost-curve 3`), which carries its own dark-region handling.
+HDR PQ content selects curve 3 automatically, so the flag has no effect on such content whether or not the curve was set by hand.
+Expect higher filesizes on dark scenes at a given CRF; bright and high-contrast regions are unaffected.
+
+- **0** disables the feature (default).
+- **1** is a mild boost, for content where dark detail loss is occasional.
+- **2** is the recommended starting point for dark animation.
+- **3** and **4** are stronger still, though how much further they push depends on the host Variance Boost configuration.
+
+The extra boost multiplies into Variance Boost's qstep ratio and is then clipped by that feature's existing ceiling, so how much headroom is left for strengths 3 and 4 depends on the host Variance Boost configuration.
+At the shipped defaults (`--variance-boost-curve 0 --variance-boost-strength 1`) the ratio for a very flat block is about 1.77 against a ceiling of 8, so all four strengths stay distinct.
+At `--variance-boost-curve 1 --variance-boost-strength 2` the ratio is already about 5.0, leaving only 1.6x of headroom, so the higher strengths converge and strength 2 is the useful setting.
+At `--variance-boost-strength 4` the ratio is already clipped before the dark term applies, so the flag does nothing for the flattest blocks.
 
 ### `--luminance-qp-bias [0-100]`
 When enabled, the `--luminance-qp-bias` parameter enables frame-level luma bias to improve quality in dark scenes by adjusting frame-level QP based on average luminance across each frame.

@@ -70,6 +70,14 @@ The default value is 5. Recommended values are between 4 and 7.
 | ![o1](./img/vb_rock_octile_o1.png) |![o2](./img/vb_rock_octile_o2.png) | ![o4](./img/vb_rock_octile_o4.png) |![o6](./img/vb_rock_octile_o6.png) | ![o8](./img/vb_rock_octile_o8.png)|
 | 4,810 bytes    | 4,186 bytes    | 2,507 bytes    | 1,878 bytes    | 1,584 bytes    |
 
+### `--dark-boost-strength [0-4]`
+
+An additional boost for superblocks that are both dark and low in contrast. Two linear weights are computed per superblock: a luma weight that is 1 at or below an 8-bit mean luma of 64 and falls to 0 at 112,
+and a contrast weight that is 1 at or below a weighted 8x8 variance of 16 and falls to 0 at 64. The Variance Boost qstep ratio is multiplied by `1 + strength_factor * luma_weight * contrast_weight`, where the strength factor 
+is 0.35, 0.7, 1.05 or 1.4 for strengths 1 to 4, before the usual clipping and conversion to a qindex offset.
+
+The feature is off by default, requires Variance Boost, and is not applied on curve 3.
+
 ## Description of the Algorithm
 
 |Image|Description|
@@ -79,6 +87,7 @@ The default value is 5. Recommended values are between 4 and 7.
 |![var](./img/vb_rock_sb_var.png)    | 3. Each subblock's variance correlates to how much contrast there is for that area. Lower values equate to less contrast, and any value below 256 (for curves 0 and 1), or 1024 (for curve 2) is considered *low variance*. In the superblock pictured, more than half of its subblocks are considered low variance when using curve 0.  |
 |![ord](./img/vb_rock_sb_var_ord.png)| 4. In `av1_get_deltaq_sb_variance_boost()`, these values are then ranked from lowest to highest variance. Then, three of these values are picked and averaged in a 1:2:1 ratio; in this case, octiles 3, 4, and 5 (i.e. the values at the end of the 3rd, 4th, and 5th row highlighted in magenta). |
 |![strength](./img/vb_strength.png)  | 5. This value is plugged into one of the four boost formulas, which then outputs a delta-q offset. More aggressive curves result in bigger offsets and thus bigger resulting adjustments. Quantization index boosts can range from 0 (for high variance areas) to 80 (for very low variance areas). |
+|                                    | 5a. With `--dark-boost-strength` set, the qstep ratio from step 5 is additionally multiplied by a factor that grows for superblocks that are both dark (low mean luma) and low in contrast (low weighted variance), before clipping. |
 |![enc](./img/vb_rock_sb_enc.png)    | 6. Finally, the offset is applied to the superblock's qindex and the same process is repeated for the remaining superblocks. Once complete, other parts of the encoding process can run. |
 
 ## References

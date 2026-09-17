@@ -909,6 +909,14 @@ typedef struct EbSvtAv1EncConfiguration {
      *  Default is 0, or 3 if encoding PQ transfer content */
     uint8_t variance_boost_curve;
 
+    /* @brief Extra Variance Boost for dark, low-contrast superblocks, where thin line art is quantized away
+     * Multiplies the Variance Boost qstep ratio by a luma- and contrast-weighted factor. Requires Variance Boost
+     * Not applied on the PQ curve. Costs bitrate on dark scenes
+     *  0: off
+     *  1-4: increasing boost
+     *  Default is 0 */
+    uint8_t dark_boost_strength;
+
     /* @brief Frame-level luminance-based QP bias to improve quality in low luma scenarios
      * Works by adjusting frame-level QP based on average luminance across a frame
      *  0: Disable luminance-based QP bias

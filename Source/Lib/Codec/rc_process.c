@@ -1579,6 +1579,13 @@ int variance_comp_double(const void *a, const void *b) {
 #define VAR_BOOST_MAX_DELTAQ_RANGE 80
 #define VAR_BOOST_MAX_QSTEP_RATIO_BOOST 8
 
+// Dark boost weights: full weight at or below the MIN bound, none at or above the MAX bound
+// Luma bounds are 8-bit mean luma at the fixed-point scale of ppcs->mean (x256)
+#define DARK_BOOST_LUMA_MIN (64 * 256)
+#define DARK_BOOST_LUMA_MAX (112 * 256)
+#define DARK_BOOST_VAR_MIN 16
+#define DARK_BOOST_VAR_MAX 64
+
 #define SUPERBLOCK_SIZE 64
 #define SUBBLOCK_SIZE 8
 #define SUBBLOCKS_IN_SB_DIM (SUPERBLOCK_SIZE / SUBBLOCK_SIZE)
@@ -1586,7 +1593,8 @@ int variance_comp_double(const void *a, const void *b) {
 #define SUBBLOCKS_IN_OCTILE (SUBBLOCKS_IN_SB / 8)
 
 static int av1_get_deltaq_sb_variance_boost(uint8_t base_q_idx, uint64_t mean, double *variances, uint8_t strength,
-                                            EbBitDepth bit_depth, uint8_t octile, uint8_t curve) {
+                                            EbBitDepth bit_depth, uint8_t octile, uint8_t curve,
+                                            uint8_t dark_strength) {
     // boost q_index based on empirical visual testing, strength 2
     // variance     qstep_ratio boost (@ base_q_idx 255)
     // 256          1
@@ -1655,9 +1663,10 @@ static int av1_get_deltaq_sb_variance_boost(uint8_t base_q_idx, uint64_t mean, d
     // compute a boost based on a fast-growing formula
     // high and medium variance sbs essentially get no boost, while increasingly lower variance sbs get stronger boosts
     assert(strength >= 1 && strength <= 4);
-    double       qstep_ratio    = 0;
-    const double strengths[]    = {0, 0.4, 0.8, 1.2, 1.8};
-    const double strengths_pq[] = {0, 0.65, 1.1, 1.6, 2.5};
+    double       qstep_ratio      = 0;
+    const double strengths[]      = {0, 0.4, 0.8, 1.2, 1.8};
+    const double strengths_pq[]   = {0, 0.65, 1.1, 1.6, 2.5};
+    const double dark_strengths[] = {0, 0.35, 0.7, 1.05, 1.4};
 
     switch (curve) {
     case 1: /* 1: low-medium contrast boosting curve */
@@ -1684,6 +1693,17 @@ static int av1_get_deltaq_sb_variance_boost(uint8_t base_q_idx, uint64_t mean, d
         if (!should_protect_block) {
             qstep_ratio = ((qstep_ratio - 1) * dark_attenuation_ratio + 1);
         }
+    }
+
+    // Dark boost: widen the boost for dark, low-contrast superblocks, where thin line art is quantized away
+    // Both weights are linear ramps; the PQ curve keeps its own dark attenuation instead
+    if (dark_strength && curve != 3) {
+        assert(dark_strength <= 4);
+        const double luma_w = CLIP3(
+            0.0, 1.0, ((double)DARK_BOOST_LUMA_MAX - (double)mean) / (DARK_BOOST_LUMA_MAX - DARK_BOOST_LUMA_MIN));
+        const double contrast_w = CLIP3(
+            0.0, 1.0, (DARK_BOOST_VAR_MAX - variance) / (DARK_BOOST_VAR_MAX - DARK_BOOST_VAR_MIN));
+        qstep_ratio *= 1 + dark_strengths[dark_strength] * luma_w * contrast_w;
     }
 
     if (curve == 3) {
@@ -1768,7 +1788,8 @@ void svt_variance_adjust_qp(PictureControlSet *pcs) {
                                                  scs->static_config.variance_boost_strength,
                                                  scs->static_config.encoder_bit_depth,
                                                  scs->static_config.variance_octile,
-                                                 scs->static_config.variance_boost_curve);
+                                                 scs->static_config.variance_boost_curve,
+                                                 scs->static_config.dark_boost_strength);
 #if DEBUG_VAR_BOOST_STATS
         SVT_DEBUG("%4d ", boost);
 
