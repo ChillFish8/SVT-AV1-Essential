@@ -3866,8 +3866,8 @@ static void set_param_based_on_input(SequenceControlSet *scs)
     if (scs->static_config.variance_boost_strength >= 4) {
         SVT_WARN("Aggressive Variance Boost strength used. This is a curve that's only useful under specific situations. Use with caution!\n");
     }
-    if (scs->static_config.dark_boost_strength && !scs->static_config.enable_variance_boost) {
-        scs->static_config.dark_boost_strength = 0;
+    if (scs->static_config.variance_dark_boost && !scs->static_config.enable_variance_boost) {
+        scs->static_config.variance_dark_boost = 0;
         SVT_WARN("Dark boost requires Variance Boost, disabling dark boost\n");
     }
     if (scs->static_config.variance_bright_attenuation && !scs->static_config.enable_variance_boost) {
@@ -4588,7 +4588,7 @@ static void copy_api_from_app(SequenceControlSet *scs, EbSvtAv1EncConfiguration 
     scs->static_config.variance_octile = config_struct->variance_octile;
 #endif
     scs->static_config.variance_boost_curve = config_struct->variance_boost_curve;
-    scs->static_config.dark_boost_strength = config_struct->dark_boost_strength;
+    scs->static_config.variance_dark_boost = config_struct->variance_dark_boost;
     scs->static_config.variance_bright_attenuation = config_struct->variance_bright_attenuation;
 
     // Temporal filtering strength

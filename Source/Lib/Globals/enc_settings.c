@@ -844,7 +844,7 @@ EbErrorType svt_av1_verify_settings(SequenceControlSet *scs) {
         return_error = EB_ErrorBadParameter;
     }
 
-    if (config->dark_boost_strength > 4) {
+    if (config->variance_dark_boost > 4) {
         SVT_ERROR("Dark boost strength must be between 0 and 4\n");
         return_error = EB_ErrorBadParameter;
     }
@@ -1112,7 +1112,7 @@ EbErrorType svt_av1_set_default_params(EbSvtAv1EncConfiguration *config_ptr) {
     config_ptr->variance_octile                   = 4;
     config_ptr->tf_strength                       = 1;
     config_ptr->variance_boost_curve              = 0;
-    config_ptr->dark_boost_strength               = 0;
+    config_ptr->variance_dark_boost               = 0;
     config_ptr->variance_bright_attenuation       = 0;
     config_ptr->luminance_qp_bias                 = 10;
     config_ptr->sharpness                         = 1;
@@ -1468,7 +1468,7 @@ void svt_av1_print_lib_params(SequenceControlSet *scs) {
                     config->variance_boost_strength,
                     config->variance_octile,
                     config->variance_boost_curve,
-                    config->dark_boost_strength,
+                    config->variance_dark_boost,
                     config->variance_bright_attenuation);
             }
         }
@@ -2697,7 +2697,7 @@ EB_API EbErrorType svt_av1_enc_parse_parameter(EbSvtAv1EncConfiguration *config_
         {"variance-boost-strength", &config_struct->variance_boost_strength},
         {"variance-octile", &config_struct->variance_octile},
         {"variance-boost-curve", &config_struct->variance_boost_curve},
-        {"dark-boost-strength", &config_struct->dark_boost_strength},
+        {"variance-dark-boost", &config_struct->variance_dark_boost},
         {"variance-bright-attenuation", &config_struct->variance_bright_attenuation},
         {"qp-scale-compress-strength", &config_struct->qp_scale_compress_strength},
         {"balancing-q-bias", &config_struct->balancing_q_bias},

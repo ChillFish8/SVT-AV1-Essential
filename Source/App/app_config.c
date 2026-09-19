@@ -212,7 +212,7 @@
 #define TF_STRENGTH_FILTER_TOKEN "--tf-strength"
 #define SHARPNESS_TOKEN "--sharpness"
 #define VARIANCE_BOOST_CURVE_TOKEN "--variance-boost-curve"
-#define DARK_BOOST_STRENGTH_TOKEN "--dark-boost-strength"
+#define VARIANCE_DARK_BOOST_TOKEN "--variance-dark-boost"
 #define VARIANCE_BRIGHT_ATTENUATION_TOKEN "--variance-bright-attenuation"
 #define LUMINANCE_QP_BIAS_TOKEN "--luminance-qp-bias"
 #define LOSSLESS_TOKEN "--lossless"
@@ -928,7 +928,7 @@ ConfigDescription config_entry_psychovisual[] = {
     // Variance boost
     {VARIANCE_BOOST_STRENGTH_TOKEN, "Variance boost strength, default is 1 [1-4]"},
     {VARIANCE_OCTILE_TOKEN, "Octile for variance boost, default is 4 [1-8]"},
-    {DARK_BOOST_STRENGTH_TOKEN, "Dark boost strength for dark, low-contrast superblocks, default is 0 [0-4]"},
+    {VARIANCE_DARK_BOOST_TOKEN, "Dark boost strength for dark, low-contrast superblocks, default is 0 [0-4]"},
     {VARIANCE_BRIGHT_ATTENUATION_TOKEN,
      "Bright attenuation strength for smooth bright superblocks, default is 0 [0-4]"},
     // AC-Bias
@@ -1316,7 +1316,7 @@ ConfigDescription fconfig_entry_psychovisual[] = {
     {VARIANCE_OCTILE_TOKEN, "Octile for Variance Boost, default is 4 [1-8]"},
     {VARIANCE_BOOST_CURVE_TOKEN,
      "Curve for Variance Boost, default is 0, or 3 if encoding PQ transfer content [0-3]"},
-    {DARK_BOOST_STRENGTH_TOKEN, "Dark boost strength for dark, low-contrast superblocks, default is 0 [0-4]"},
+    {VARIANCE_DARK_BOOST_TOKEN, "Dark boost strength for dark, low-contrast superblocks, default is 0 [0-4]"},
     {VARIANCE_BRIGHT_ATTENUATION_TOKEN,
      "Bright attenuation strength for smooth bright superblocks, default is 0 [0-4]"},
     // Adaptive film grain
@@ -1545,7 +1545,7 @@ ConfigEntry config_entry[] = {
     {VARIANCE_BOOST_STRENGTH_TOKEN, "VarianceBoostStrength", set_cfg_generic_token},
     {VARIANCE_OCTILE_TOKEN, "VarianceOctile", set_cfg_generic_token},
     {VARIANCE_BOOST_CURVE_TOKEN, "VarianceBoostCurve", set_cfg_generic_token},
-    {DARK_BOOST_STRENGTH_TOKEN, "DarkBoostStrength", set_cfg_generic_token},
+    {VARIANCE_DARK_BOOST_TOKEN, "VarianceDarkBoost", set_cfg_generic_token},
     {VARIANCE_BRIGHT_ATTENUATION_TOKEN, "VarianceBrightAttenuation", set_cfg_generic_token},
 
     // TF Strength

@@ -117,7 +117,7 @@ For more information on valid values for specific keys, refer to the [EbEncSetti
 | **VarianceBoostStrength**        | --variance-boost-strength        | [1-4]      | 1           | Set variance curve strength for variance boost feature [1: mild [Default], 2: gentle, 3: medium, 4: aggressive]                                      |
 | **VarianceOctile**               | --variance-octile                | [1-8]      | 4           | Set variance algorithm 8x8 block selectivity level [1: 1st octile, 4: median [Default], 6: 6th octile, 8: maximum]                                   |
 | **VarianceBoostCurve**           | --variance-boost-curve           | [0-3]      | 0, 3 (PQ)   | Variance Boost curve [0: default, 1: alternative, 2: still image, 3: HDR PQ transfer]                                                                |
-| **DarkBoostStrength**            | --dark-boost-strength            | [0-4]      | 0           | Extra Variance Boost for dark, low-contrast superblocks, requires Variance Boost, not applied on curve 3 [0: off, 1-4: increasing boost]             |
+| **VarianceDarkBoost**            | --variance-dark-boost            | [0-4]      | 0           | Extra Variance Boost for dark, low-contrast superblocks, requires Variance Boost, not applied on curve 3 [0: off, 1-4: increasing boost]             |
 | **VarianceBrightAttenuation**    | --variance-bright-attenuation    | [0-4]      | 0           | Taper Variance Boost on bright, smooth superblocks, requires Variance Boost, not applied on curve 3 [0: off, 1-4: increasing]                        |
 | **AdaptiveQuantization**         | --aq-mode                        | [0-2]      | 2           | Set adaptive QP level [0: off, 1: variance base using AV1 segments, 2: deltaq pred efficiency]                                                       |
 | **QpScaleCompressStrength**      | --qp-scale-compress-strength     | [0-8]      | 0, 1 (off)  | Sets the QP compression strength for less quality variation across frames in a mini-gop [0: off, 8: max]; derived from balancing-q-bias when unset   |
@@ -651,8 +651,8 @@ Adaptive film grain is disabled by default.
 
 - **High values** (4.0-6.0, together with disabling temporal filtering and CDEF) can dramatically improve film grain and noise retention.
 
-### `--dark-boost-strength [0-4]`
-`--dark-boost-strength` adds an extra, luma-weighted boost on top of Variance Boost for superblocks that are both dark and low in contrast, the regions where thin line art a few code values above a near-black fill is otherwise quantized away.
+### `--variance-dark-boost [0-4]`
+`--variance-dark-boost` adds an extra, luma-weighted boost on top of Variance Boost for superblocks that are both dark and low in contrast, the regions where thin line art a few code values above a near-black fill is otherwise quantized away.
 The boost is applied through the same per-superblock delta-q path as Variance Boost, so the encoder's rate-distortion decisions follow it as well as the quantizer step.
 Superblocks that are a solid fill are excluded, so a black title or credits card does not pay for the feature; a superblock needs some detail in it, however faint, before the boost applies.
 It requires Variance Boost to be enabled and is not applied on the PQ curve (`--variance-boost-curve 3`), which carries its own dark-region handling.
@@ -671,7 +671,7 @@ At `--variance-boost-strength 4` the ratio is already clipped before the dark te
 
 ### `--variance-bright-attenuation [0-4]`
 `--variance-bright-attenuation` scales the Variance Boost quantizer step ratio back toward 1 for superblocks whose mean luma is above 112, where smooth bright artwork gains little from the boost.
-It is the counterpart to `--dark-boost-strength`: the ramp begins exactly where that feature's luma weight ends, so a superblock is never both boosted for being dark and tapered for being bright.
+It is the counterpart to `--variance-dark-boost`: the ramp begins exactly where that feature's luma weight ends, so a superblock is never both boosted for being dark and tapered for being bright.
 It requires Variance Boost and is not applied on the PQ curve (`--variance-boost-curve 3`), which carries its own luma handling.
 The feature only ever removes boost, so it can only reduce filesize at a given CRF, and it leaves dark content untouched.
 It is most useful on content built from large areas of flat bright colour, such as animation title sequences and credits, where Variance Boost otherwise raises the whole scene's bitrate without a visible return.

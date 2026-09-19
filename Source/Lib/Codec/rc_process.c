@@ -1818,7 +1818,7 @@ void svt_variance_adjust_qp(PictureControlSet *pcs) {
                                                  scs->static_config.encoder_bit_depth,
                                                  scs->static_config.variance_octile,
                                                  scs->static_config.variance_boost_curve,
-                                                 scs->static_config.dark_boost_strength,
+                                                 scs->static_config.variance_dark_boost,
                                                  scs->static_config.variance_bright_attenuation);
 #if DEBUG_VAR_BOOST_STATS
         SVT_DEBUG("%4d ", boost);
