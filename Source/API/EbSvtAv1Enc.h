@@ -915,7 +915,7 @@ typedef struct EbSvtAv1EncConfiguration {
      *  0: off
      *  1-4: increasing boost
      *  Default is 0 */
-    uint8_t dark_boost_strength;
+    uint8_t variance_dark_boost;
 
     /* @brief Taper Variance Boost on bright superblocks, where smooth artwork gains nothing from the boost
      * Scales the Variance Boost qstep ratio toward 1 as mean luma rises above 112. Requires Variance Boost
