@@ -1590,6 +1590,11 @@ int variance_comp_double(const void *a, const void *b) {
 #define DARK_BOOST_DETAIL_MIN 0.5
 #define DARK_BOOST_DETAIL_MAX 2.0
 
+// Bright attenuation: scale the boost back toward 1 for bright sbs, which were measured to gain nothing from it
+// at equal rate; bounds are 8-bit mean luma at the fixed-point scale of ppcs->mean (x256)
+#define BRIGHT_ATTEN_LUMA_MIN (112 * 256)
+#define BRIGHT_ATTEN_LUMA_MAX (192 * 256)
+
 #define SUPERBLOCK_SIZE 64
 #define SUBBLOCK_SIZE 8
 #define SUBBLOCKS_IN_SB_DIM (SUPERBLOCK_SIZE / SUBBLOCK_SIZE)
@@ -1597,8 +1602,8 @@ int variance_comp_double(const void *a, const void *b) {
 #define SUBBLOCKS_IN_OCTILE (SUBBLOCKS_IN_SB / 8)
 
 static int av1_get_deltaq_sb_variance_boost(uint8_t base_q_idx, uint64_t mean, double *variances, uint8_t strength,
-                                            EbBitDepth bit_depth, uint8_t octile, uint8_t curve,
-                                            uint8_t dark_strength) {
+                                            EbBitDepth bit_depth, uint8_t octile, uint8_t curve, uint8_t dark_strength,
+                                            uint8_t bright_strength) {
     // boost q_index based on empirical visual testing, strength 2
     // variance     qstep_ratio boost (@ base_q_idx 255)
     // 256          1
@@ -1671,6 +1676,7 @@ static int av1_get_deltaq_sb_variance_boost(uint8_t base_q_idx, uint64_t mean, d
     const double strengths[]      = {0, 0.4, 0.8, 1.2, 1.8};
     const double strengths_pq[]   = {0, 0.65, 1.1, 1.6, 2.5};
     const double dark_strengths[] = {0, 0.35, 0.7, 1.05, 1.4};
+    const double bright_floors[]  = {0, 0.7, 0.5, 0.3, 0.15};
 
     switch (curve) {
     case 1: /* 1: low-medium contrast boosting curve */
@@ -1714,6 +1720,16 @@ static int av1_get_deltaq_sb_variance_boost(uint8_t base_q_idx, uint64_t mean, d
                                       (ordered_variances[SUBBLOCKS_IN_SB - 1] - DARK_BOOST_DETAIL_MIN) /
                                           (DARK_BOOST_DETAIL_MAX - DARK_BOOST_DETAIL_MIN));
         qstep_ratio *= 1 + dark_strengths[dark_strength] * luma_w * contrast_w * detail_w;
+    }
+
+    // Bright attenuation: smooth bright regions were measured to look the same without the boost at equal rate,
+    // so give the bits back; the ramp starts where the dark boost's luma weight ends, so the two never overlap
+    if (bright_strength && curve != 3) {
+        assert(bright_strength <= 4);
+        const double bright_w = CLIP3(
+            0.0, 1.0, ((double)BRIGHT_ATTEN_LUMA_MAX - (double)mean) / (BRIGHT_ATTEN_LUMA_MAX - BRIGHT_ATTEN_LUMA_MIN));
+        const double bright_floor = bright_floors[bright_strength];
+        qstep_ratio               = (qstep_ratio - 1) * (bright_floor + (1 - bright_floor) * bright_w) + 1;
     }
 
     if (curve == 3) {
@@ -1799,7 +1815,8 @@ void svt_variance_adjust_qp(PictureControlSet *pcs) {
                                                  scs->static_config.encoder_bit_depth,
                                                  scs->static_config.variance_octile,
                                                  scs->static_config.variance_boost_curve,
-                                                 scs->static_config.dark_boost_strength);
+                                                 scs->static_config.dark_boost_strength,
+                                                 scs->static_config.variance_bright_attenuation);
 #if DEBUG_VAR_BOOST_STATS
         SVT_DEBUG("%4d ", boost);
 

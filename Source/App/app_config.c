@@ -213,6 +213,7 @@
 #define SHARPNESS_TOKEN "--sharpness"
 #define VARIANCE_BOOST_CURVE_TOKEN "--variance-boost-curve"
 #define DARK_BOOST_STRENGTH_TOKEN "--dark-boost-strength"
+#define VARIANCE_BRIGHT_ATTENUATION_TOKEN "--variance-bright-attenuation"
 #define LUMINANCE_QP_BIAS_TOKEN "--luminance-qp-bias"
 #define LOSSLESS_TOKEN "--lossless"
 #define AVIF_TOKEN "--avif"
@@ -928,6 +929,8 @@ ConfigDescription config_entry_psychovisual[] = {
     {VARIANCE_BOOST_STRENGTH_TOKEN, "Variance boost strength, default is 1 [1-4]"},
     {VARIANCE_OCTILE_TOKEN, "Octile for variance boost, default is 4 [1-8]"},
     {DARK_BOOST_STRENGTH_TOKEN, "Dark boost strength for dark, low-contrast superblocks, default is 0 [0-4]"},
+    {VARIANCE_BRIGHT_ATTENUATION_TOKEN,
+     "Bright attenuation strength for smooth bright superblocks, default is 0 [0-4]"},
     // AC-Bias
     {AC_BIAS_TOKEN, "Strength of AC bias in rate distortion, default is 0.25 [0.0-8.0]"},
     // Alt CDEF
@@ -1314,6 +1317,8 @@ ConfigDescription fconfig_entry_psychovisual[] = {
     {VARIANCE_BOOST_CURVE_TOKEN,
      "Curve for Variance Boost, default is 0, or 3 if encoding PQ transfer content [0-3]"},
     {DARK_BOOST_STRENGTH_TOKEN, "Dark boost strength for dark, low-contrast superblocks, default is 0 [0-4]"},
+    {VARIANCE_BRIGHT_ATTENUATION_TOKEN,
+     "Bright attenuation strength for smooth bright superblocks, default is 0 [0-4]"},
     // Adaptive film grain
     {ADAPTIVE_FILM_GRAIN_TOKEN, "Adapts film grain blocksize based on video resolution, default is 0 [0-1]"},
     // Max TX size
@@ -1541,6 +1546,7 @@ ConfigEntry config_entry[] = {
     {VARIANCE_OCTILE_TOKEN, "VarianceOctile", set_cfg_generic_token},
     {VARIANCE_BOOST_CURVE_TOKEN, "VarianceBoostCurve", set_cfg_generic_token},
     {DARK_BOOST_STRENGTH_TOKEN, "DarkBoostStrength", set_cfg_generic_token},
+    {VARIANCE_BRIGHT_ATTENUATION_TOKEN, "VarianceBrightAttenuation", set_cfg_generic_token},
 
     // TF Strength
     {TF_STRENGTH_FILTER_TOKEN, "TemporalFilteringStrength", set_cfg_generic_token},
