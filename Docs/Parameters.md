@@ -682,7 +682,8 @@ It is most useful on content built from large areas of flat bright colour, such 
 - **3** retains 30%, and is the recommended starting point for bright animation.
 - **4** retains 15%, the strongest setting.
 
-The retained fraction applies at and above a mean luma of 192 and ramps up to no attenuation at and below 112, so mid-luma superblocks are affected in proportion.
+The retained fraction applies at and above a mean luma of 144 and ramps up to no attenuation at and below 112, so mid-luma superblocks are affected in proportion.
+Superblocks that span both dark and bright areas are left alone, since their mean luma does not describe them.
 Watch for banding in large smooth bright areas as the strength rises; that is the one artefact this feature can introduce.
 
 ### `--luminance-qp-bias [0-100]`

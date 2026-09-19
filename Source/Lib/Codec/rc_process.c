@@ -1593,7 +1593,9 @@ int variance_comp_double(const void *a, const void *b) {
 // Bright attenuation: scale the boost back toward 1 for bright sbs, which were measured to gain nothing from it
 // at equal rate; bounds are 8-bit mean luma at the fixed-point scale of ppcs->mean (x256)
 #define BRIGHT_ATTEN_LUMA_MIN (112 * 256)
-#define BRIGHT_ATTEN_LUMA_MAX (192 * 256)
+#define BRIGHT_ATTEN_LUMA_MAX (144 * 256)
+// A sb spanning dark and bright areas has an unrepresentative mean, so leave its boost alone above this 64x64 variance
+#define BRIGHT_ATTEN_MIXED_VAR_TH 4000
 
 #define SUPERBLOCK_SIZE 64
 #define SUBBLOCK_SIZE 8
@@ -1724,7 +1726,8 @@ static int av1_get_deltaq_sb_variance_boost(uint8_t base_q_idx, uint64_t mean, d
 
     // Bright attenuation: smooth bright regions were measured to look the same without the boost at equal rate,
     // so give the bits back; the ramp starts where the dark boost's luma weight ends, so the two never overlap
-    if (bright_strength && curve != 3) {
+    // The 64x64 check is the same one the PQ curve uses to spot mixed blocks, and keeps the mean from misreading them
+    if (bright_strength && curve != 3 && variances[ME_TIER_ZERO_PU_64x64] <= BRIGHT_ATTEN_MIXED_VAR_TH) {
         assert(bright_strength <= 4);
         const double bright_w = CLIP3(
             0.0, 1.0, ((double)BRIGHT_ATTEN_LUMA_MAX - (double)mean) / (BRIGHT_ATTEN_LUMA_MAX - BRIGHT_ATTEN_LUMA_MIN));

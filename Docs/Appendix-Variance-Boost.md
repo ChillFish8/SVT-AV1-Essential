@@ -81,9 +81,10 @@ The feature is off by default, requires Variance Boost, and is not applied on cu
 
 ### `--variance-bright-attenuation [0-4]`
 
-An attenuation of the Variance Boost for superblocks that are bright. A luma weight is computed per superblock that is 1 at or below an 8-bit mean luma of 112 and falls to 0 at 192.
+An attenuation of the Variance Boost for superblocks that are bright. A luma weight is computed per superblock that is 1 at or below an 8-bit mean luma of 112 and falls to 0 at 144.
 The Variance Boost qstep ratio is rescaled as `(ratio - 1) * (floor + (1 - floor) * luma_weight) + 1`, where the floor is 0.7, 0.5, 0.3 or 0.15 for strengths 1 to 4, before the usual clipping and conversion to a qindex offset.
 Because the rescale is anchored at 1, a superblock that was receiving no boost is unaffected, and the term can never increase the ratio.
+Superblocks whose 64x64 variance exceeds 4000 are skipped entirely: these span both dark and bright areas, so their mean luma does not describe them and attenuating on it would take bits from the dark part.
 
 The feature is off by default, requires Variance Boost, and is not applied on curve 3.
 
