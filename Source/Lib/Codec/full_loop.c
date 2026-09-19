@@ -18,6 +18,7 @@
 #include "sequence_control_set.h"
 #include "utility.h"
 #include "ac_bias.h"
+#include "optimize_b_basis.h"
 
 const int av1_get_tx_scale_tab[TX_SIZES_ALL] = {0, 0, 0, 1, 2, 0, 0, 0, 0, 1, 1, 2, 2, 0, 0, 0, 0, 1, 1};
 
@@ -1482,17 +1483,347 @@ void svt_av1_perform_noise_normalization(MacroblockPlane *p, QuantParam *qparam,
     }
 }
 
+// Fill the pixel-domain input the optimize-b refinement reads for one plane; recon_offset
+// locates this tx block inside the caller's recon buffer, which is not always its base
+void svt_aom_set_optimize_b_input(OptimizeBInput *ob, struct ModeDecisionCandidateBuffer *cand_bf, uint8_t *input,
+                                  uint32_t input_offset, uint32_t input_stride, uint8_t *pred, uint32_t pred_offset,
+                                  uint32_t pred_stride, uint8_t *recon, int32_t recon_offset, uint32_t recon_stride,
+                                  uint32_t area_width, uint32_t area_height, bool is_hbd) {
+    ob->input        = input;
+    ob->input_offset = input_offset;
+    ob->input_stride = input_stride;
+    ob->pred         = pred;
+    ob->pred_offset  = pred_offset;
+    ob->pred_stride  = pred_stride;
+    ob->recon        = recon;
+    ob->recon_offset = recon_offset;
+    ob->recon_stride = recon_stride;
+    ob->area_width   = area_width;
+    ob->area_height  = area_height;
+    ob->cand_bf      = cand_bf;
+    ob->is_hbd       = is_hbd;
+}
+// Rate of the current quantized coefficients, used to cost each optimize-b trial
+static uint64_t slow_optimize_b_calculate_rate(PictureControlSet *pcs, ModeDecisionContext *ctx, int32_t *quant_coeff,
+                                               TxSize txsize, TxType tx_type, int32_t plane, uint16_t eob,
+                                               ModeDecisionCandidateBuffer *cand_bf, int16_t txb_skip_context,
+                                               int16_t dc_sign_context) {
+    uint64_t rate = svt_av1_cost_coeffs_txb(ctx,
+                                            0,
+                                            NULL,
+                                            cand_bf,
+                                            quant_coeff,
+                                            AOMMAX(eob, 1),
+                                            plane,
+                                            txsize,
+                                            tx_type,
+                                            txb_skip_context,
+                                            dc_sign_context,
+                                            pcs->ppcs->frm_hdr.reduced_tx_set ? true : false);
+    // Luma residual may be subres-sampled, so scale the rate back to full resolution
+    if (plane == AOM_PLANE_Y)
+        rate <<= ctx->subres_ctrls.step;
+    return rate;
+}
+// Distortion of a recon already sitting in the given buffer, against the source in ob
+static uint64_t slow_optimize_b_measure_dist(const uint8_t *recon, int32_t recon_offset, uint32_t recon_stride,
+                                             const OptimizeBInput *ob, const int32_t *psy_src_coeffs) {
+    uint64_t dist;
+    // block_mi is dereferenced unconditionally by the facade; tx_bias 0 leaves it unread
+    dist = svt_spatial_full_distortion_kernel_facade(ob->input,
+                                                     ob->input_offset,
+                                                     ob->input_stride,
+                                                     recon,
+                                                     recon_offset,
+                                                     recon_stride,
+                                                     ob->area_width,
+                                                     ob->area_height,
+                                                     ob->is_hbd,
+                                                     &(ob->cand_bf->cand->block_mi),
+                                                     false,
+                                                     0,
+                                                     0,
+                                                     0);
+    // The source half of the satd bias is the same for every trial, so it is transformed once by
+    // the caller and only the recon half is redone here
+    dist += get_psy_dist_satd_bias_only_pre_src(psy_src_coeffs,
+                                                recon,
+                                                recon_offset,
+                                                recon_stride,
+                                                ob->area_width,
+                                                ob->area_height,
+                                                ob->is_hbd,
+                                                0.5,
+                                                svt_aom_get_satd_bias_qmatrix());
+    // Match the distortion scale the rdoq lambda expects
+    dist <<= 4;
+    return dist;
+}
+// Pixel-domain distortion of the trial coefficients, reconstructed through the inverse tx
+static uint64_t slow_optimize_b_calculate_dist(PictureControlSet *pcs, ModeDecisionContext *ctx, int32_t *recon_coeff,
+                                               TxSize txsize, TxType tx_type, int32_t plane, uint16_t eob,
+                                               const OptimizeBInput *ob, const int32_t *psy_src_coeffs) {
+    uint8_t *recon        = ob->recon;
+    int32_t  recon_offset = ob->recon_offset;
+    uint32_t recon_stride = ob->recon_stride;
+    if (eob != 0)
+        svt_aom_inv_transform_recon_wrapper(pcs,
+                                            ctx,
+                                            ob->pred,
+                                            ob->pred_offset,
+                                            ob->pred_stride,
+                                            recon,
+                                            recon_offset,
+                                            recon_stride,
+                                            recon_coeff,
+                                            0,
+                                            ob->is_hbd,
+                                            txsize,
+                                            tx_type,
+                                            plane,
+                                            eob);
+    else {
+        // No coefficients left, so the prediction is the reconstruction
+        recon        = ob->pred;
+        recon_offset = ob->pred_offset;
+        recon_stride = ob->pred_stride;
+    }
+    return slow_optimize_b_measure_dist(recon, recon_offset, recon_stride, ob, psy_src_coeffs);
+}
+// The pixel-domain residual of the current coefficients, kept so a trial can drop one coefficient
+// by subtracting its separable footprint instead of rerunning the inverse transform. Two buffers
+// so an accepted trial becomes current by a pointer swap and a rejected one costs nothing
+typedef struct SlowOptimizeBResidual {
+    OptimizeBBasis basis;
+    int16_t       *cur;
+    int16_t       *trial;
+    uint32_t       width;
+    uint32_t       height;
+    uint32_t       packed_width; // coefficient stride, at most 32
+    bool           active;
+} SlowOptimizeBResidual;
+// Seeds the residual from the coefficients through the basis and renders the starting recon
+// from it. Seeding from the exact recon instead would carry that recon's rounding into every
+// trial on top of the trial's own, which biased the trials toward rejection
+static void slow_optimize_b_residual_seed(SlowOptimizeBResidual *res, const OptimizeBInput *ob,
+                                          const int32_t *recon_coeff) {
+    svt_aom_optimize_b_seed_residual(res->basis.col,
+                                     res->basis.row,
+                                     recon_coeff,
+                                     res->packed_width,
+                                     AOMMIN(res->height, 32),
+                                     res->width,
+                                     res->height,
+                                     res->cur);
+    const uint8_t *pred  = ob->is_hbd ? (const uint8_t *)(((const uint16_t *)ob->pred) + ob->pred_offset)
+                                      : ob->pred + ob->pred_offset;
+    uint8_t       *recon = ob->is_hbd ? (uint8_t *)(((uint16_t *)ob->recon) + ob->recon_offset)
+                                      : ob->recon + ob->recon_offset;
+    svt_aom_optimize_b_render(
+        res->cur, pred, ob->pred_stride, recon, ob->recon_stride, res->width, res->height, ob->is_hbd);
+}
+// Recon with coefficient rc, currently worth value, dropped, written where the inverse transform
+// would have put it
+static void slow_optimize_b_residual_trial(SlowOptimizeBResidual *res, const OptimizeBInput *ob, int16_t rc,
+                                           TranLow value) {
+    const uint32_t r = rc / res->packed_width;
+    const uint32_t c = rc % res->packed_width;
+    float          col_scaled[MAX_TX_SIZE];
+    // One float product per entry, rounded once in the kernel, so every platform lands on the same
+    // recon and the refinement's decisions do not depend on the asm level
+    const float value_f = (float)value;
+    for (uint32_t i = 0; i < res->height; i++) col_scaled[i] = value_f * res->basis.col[r * res->height + i];
+    const uint8_t *pred  = ob->is_hbd ? (const uint8_t *)(((const uint16_t *)ob->pred) + ob->pred_offset)
+                                      : ob->pred + ob->pred_offset;
+    uint8_t       *recon = ob->is_hbd ? (uint8_t *)(((uint16_t *)ob->recon) + ob->recon_offset)
+                                      : ob->recon + ob->recon_offset;
+    svt_aom_optimize_b_apply_delta(res->cur,
+                                   res->trial,
+                                   col_scaled,
+                                   res->basis.row + c * res->width,
+                                   pred,
+                                   ob->pred_stride,
+                                   recon,
+                                   ob->recon_stride,
+                                   res->width,
+                                   res->height,
+                                   ob->is_hbd);
+}
+// True when the trial wins on RD cost, with distortion as the tie-break
+static bool slow_optimize_b_compare_cost(uint32_t lambda, uint64_t incoming_rate, uint64_t incoming_dist,
+                                         uint64_t existing_rate, uint64_t existing_dist) {
+    const uint64_t incoming_cost = RDCOST_DBL(lambda, incoming_rate, incoming_dist);
+    const uint64_t existing_cost = RDCOST_DBL(lambda, existing_rate, existing_dist);
+    if (incoming_cost != existing_cost)
+        return incoming_cost < existing_cost;
+    else {
+        return incoming_dist < existing_dist;
+    }
+}
+// Pixel-domain coefficient refinement run before the trellis; zeroes coefficients that
+// fell inside the zbin when the full RD cost of dropping them is lower
+static void slow_optimize_b(PictureControlSet *pcs, ModeDecisionContext *ctx, int32_t *quant_coeff,
+                            int32_t *recon_coeff, TxSize txsize, TxType tx_type, int32_t plane, uint16_t *eob,
+                            const ScanOrder *scan_order, const int16_t *zbin_ptr, const OptimizeBInput *ob,
+                            int16_t txb_skip_context, int16_t dc_sign_context, uint32_t lambda) {
+    // Budget of zbin trials for this tx, so large blocks are not walked exhaustively
+    uint16_t zbin_available = av1_get_max_eob(txsize) >> 5;
+    // 4x4 gets no budget at all. The quantizer leaves eob on the last non-zero coefficient, so
+    // with nothing to try the walk below cannot change anything, and the rate and recon it
+    // starts from would be computed for nothing
+    if (zbin_available == 0)
+        return;
+    // Same shift av1_get_tx_scale_tab gives QuantParam, needed by the zbin comparison
+    const int16_t log_scale = (int16_t)av1_get_tx_scale_tab[txsize];
+    // Hadamard of the source block, which no trial can change, hoisted out of the whole loop
+    DECLARE_ALIGNED(64, int32_t, psy_src_coeffs[MAX_TX_SQUARE]);
+    svt_aom_get_psy_satd_bias_src_hadamard(
+        ob->input, ob->input_offset, ob->input_stride, ob->area_width, ob->area_height, ob->is_hbd, psy_src_coeffs);
+    uint64_t current_rate = slow_optimize_b_calculate_rate(
+        pcs, ctx, quant_coeff, txsize, tx_type, plane, *eob, ob->cand_bf, txb_skip_context, dc_sign_context);
+    // Trials on the larger transforms run on the incremental residual, which also supplies the
+    // starting recon, the rest keep the exact inverse transform throughout
+    DECLARE_ALIGNED(32, int16_t, residual_a[MAX_TX_SQUARE]);
+    DECLARE_ALIGNED(32, int16_t, residual_b[MAX_TX_SQUARE]);
+    SlowOptimizeBResidual residual;
+    residual.cur          = residual_a;
+    residual.trial        = residual_b;
+    residual.width        = tx_size_wide[txsize];
+    residual.height       = tx_size_high[txsize];
+    residual.packed_width = AOMMIN(residual.width, 32);
+    residual.active       = *eob != 0 && svt_aom_optimize_b_basis_get(txsize, tx_type, &residual.basis);
+    uint64_t current_dist;
+    if (residual.active) {
+        slow_optimize_b_residual_seed(&residual, ob, recon_coeff);
+        current_dist = slow_optimize_b_measure_dist(
+            ob->recon, ob->recon_offset, ob->recon_stride, ob, psy_src_coeffs);
+    } else
+        current_dist = slow_optimize_b_calculate_dist(
+            pcs, ctx, recon_coeff, txsize, tx_type, plane, *eob, ob, psy_src_coeffs);
+    const uint16_t eob_compare_limit = AOMMAX(av1_get_max_eob(txsize) >> 3, 1);
+    for (int32_t i = (int32_t)(*eob) - 1; i >= 0; i--) {
+        const int16_t rc = scan_order->scan[i];
+        if (quant_coeff[rc]) {
+            const int     sign      = quant_coeff[rc] < 0 ? -1 : 0;
+            const int64_t abs_quant = (quant_coeff[rc] ^ sign) - sign;
+            if (zbin_available && (abs_quant << (1 + log_scale)) < zbin_ptr[rc != 0] && quant_coeff[rc]) {
+                const TranLow pre_quant = quant_coeff[rc];
+                const TranLow pre_recon = recon_coeff[rc];
+                quant_coeff[rc]         = 0;
+                recon_coeff[rc]         = 0;
+                uint16_t new_eob        = *eob;
+                if (!quant_coeff[rc] && *eob == i + 1) {
+                    new_eob--;
+                    for (int32_t j = (int32_t)new_eob - 1; j >= 0; j--) {
+                        const int16_t rc = scan_order->scan[j];
+                        if (!quant_coeff[rc])
+                            new_eob--;
+                        else
+                            break;
+                    }
+                }
+                // Clamp how far the eob may drop before the trials are compared, so a long
+                // run of zeroes does not make the two rates incomparable
+                const uint16_t new_eob_compare = AOMMAX(new_eob + eob_compare_limit, *eob) - eob_compare_limit;
+                const uint64_t new_rate        = slow_optimize_b_calculate_rate(pcs,
+                                                                                ctx,
+                                                                                quant_coeff,
+                                                                                txsize,
+                                                                                tx_type,
+                                                                                plane,
+                                                                                new_eob_compare,
+                                                                                ob->cand_bf,
+                                                                                txb_skip_context,
+                                                                                dc_sign_context);
+                uint64_t new_dist;
+                // A trial that empties the block is exact either way, so it keeps the prediction path
+                const bool incremental = residual.active && new_eob_compare != 0;
+                if (incremental) {
+                    slow_optimize_b_residual_trial(&residual, ob, rc, pre_recon);
+                    new_dist = slow_optimize_b_measure_dist(
+                        ob->recon, ob->recon_offset, ob->recon_stride, ob, psy_src_coeffs);
+                } else
+                    new_dist = slow_optimize_b_calculate_dist(
+                        pcs, ctx, recon_coeff, txsize, tx_type, plane, new_eob_compare, ob, psy_src_coeffs);
+                if (slow_optimize_b_compare_cost(lambda, new_rate, new_dist, current_rate, current_dist)) {
+                    if (incremental) {
+                        int16_t *accepted = residual.trial;
+                        residual.trial      = residual.cur;
+                        residual.cur      = accepted;
+                    } else if (residual.active)
+                        // The block is now empty, so no trial can follow and the residual is done
+                        residual.active = false;
+                    if (new_eob != *eob) {
+                        *eob = new_eob;
+                        i    = (int32_t)(*eob); // - 1 + 1
+                    }
+                    if (new_eob_compare != *eob)
+                        current_rate = slow_optimize_b_calculate_rate(pcs,
+                                                                      ctx,
+                                                                      quant_coeff,
+                                                                      txsize,
+                                                                      tx_type,
+                                                                      plane,
+                                                                      *eob,
+                                                                      ob->cand_bf,
+                                                                      txb_skip_context,
+                                                                      dc_sign_context);
+                    else
+                        current_rate = new_rate;
+                    current_dist = new_dist;
+                } else {
+                    quant_coeff[rc] = pre_quant;
+                    recon_coeff[rc] = pre_recon;
+                }
+            }
+
+            if (!quant_coeff[rc]) {
+                if (*eob == i + 1)
+                    --*eob;
+            } else if (zbin_available)
+                zbin_available--;
+        }
+
+        else { // !quant_coeff[rc]
+            if (*eob == i + 1) {
+                --*eob;
+                for (int32_t j = (int32_t)*eob - 1; j >= 0; j--) {
+                    const int16_t rc = scan_order->scan[j];
+                    if (!quant_coeff[rc])
+                        --*eob;
+                    else
+                        break;
+                }
+                i            = (int32_t)(*eob); // - 1 + 1
+                current_rate = slow_optimize_b_calculate_rate(pcs,
+                                                              ctx,
+                                                              quant_coeff,
+                                                              txsize,
+                                                              tx_type,
+                                                              plane,
+                                                              *eob,
+                                                              ob->cand_bf,
+                                                              txb_skip_context,
+                                                              dc_sign_context);
+            }
+        }
+    }
+}
 uint8_t svt_aom_quantize_inv_quantize(PictureControlSet *pcs, ModeDecisionContext *ctx, int32_t *coeff,
                                       int32_t *quant_coeff, int32_t *recon_coeff, uint32_t qindex,
                                       int32_t segmentation_qp_offset, TxSize txsize, uint16_t *eob,
                                       uint32_t component_type, uint32_t bit_depth, TxType tx_type,
                                       int16_t txb_skip_context, int16_t dc_sign_context, PredictionMode pred_mode,
-                                      uint32_t lambda, bool is_encode_pass) {
+                                      uint32_t lambda, bool is_encode_pass, uint8_t optimize_b_available,
+                                      const OptimizeBInput *ob) {
     SequenceControlSet *scs     = pcs->scs;
     EncodeContext      *enc_ctx = scs->enc_ctx;
     int32_t             plane   = component_type == COMPONENT_LUMA
                       ? AOM_PLANE_Y
                       : (component_type == COMPONENT_CHROMA_CB ? AOM_PLANE_U : AOM_PLANE_V);
+    // Rate and recon helpers index by PlaneType, which has no V entry, so both chroma
+    // components cost as UV
+    const int32_t ob_plane = component_type == COMPONENT_LUMA ? PLANE_TYPE_Y : PLANE_TYPE_UV;
 
     int32_t qmatrix_level = (IS_2D_TRANSFORM(tx_type) && pcs->ppcs->frm_hdr.quantization_params.using_qmatrix)
         ? pcs->ppcs->frm_hdr.quantization_params.qm[plane]
@@ -1665,7 +1996,29 @@ uint8_t svt_aom_quantize_inv_quantize(PictureControlSet *pcs, ModeDecisionContex
         if (eob_perc >= ctx->rdoq_ctrls.eob_th) {
             perform_rdoq = 0;
         }
-        if (perform_rdoq && (eob_perc >= ctx->rdoq_ctrls.eob_fast_th)) {
+        // Modes 1 and 2 replace the fast pre-pass with the slow pass.
+        // mode 2 additionally disables the late trellis call below. Note this numbering
+        // is a different from 5fish's variant, where this configuration is
+        // mode 4. Mode 2 and 3 from the original 5fish implementation was not implemented
+        // due to there being not observed quality improvement over simply lowering the CRF
+        // to match the bitrate difference.
+        if (perform_rdoq && optimize_b_available &&
+            (ctx->active_optimize_b_mode == 1 || ctx->active_optimize_b_mode == 2)) {
+            slow_optimize_b(pcs,
+                            ctx,
+                            quant_coeff,
+                            recon_coeff,
+                            txsize,
+                            tx_type,
+                            ob_plane,
+                            eob,
+                            scan_order,
+                            candidate_plane.zbin_qtx,
+                            ob,
+                            txb_skip_context,
+                            dc_sign_context,
+                            lambda);
+        } else if (perform_rdoq && (eob_perc >= ctx->rdoq_ctrls.eob_fast_th)) {
             svt_fast_optimize_b(
                 (TranLow *)coeff, &candidate_plane, quant_coeff, (TranLow *)recon_coeff, eob, txsize, tx_type);
         }
@@ -1709,7 +2062,11 @@ uint8_t svt_aom_quantize_inv_quantize(PictureControlSet *pcs, ModeDecisionContex
         }
     }
 
-    if (perform_rdoq && *eob != 0) {
+    // Mode 2 disables the stock trellis unconditionally, regardless of optimize_b_available.
+    // At call sites where optimize_b_available is 0 (chroma here, and light-PD1 luma in
+    // product_coding_loop.c), the slow pass above never runs, so those blocks get no
+    // coefficient optimisation at all under mode 2.
+    if (perform_rdoq && *eob != 0 && ctx->active_optimize_b_mode != 2) {
         // Perform rdoq
         svt_av1_optimize_b(pcs,
                            ctx,
@@ -1859,7 +2216,9 @@ void svt_aom_full_loop_chroma_light_pd1(PictureControlSet *pcs, ModeDecisionCont
                                                                0,
                                                                cand_bf->cand->block_mi.mode,
                                                                full_lambda,
-                                                               false);
+                                                               false,
+                                                               0,
+                                                               NULL);
 
         svt_aom_picture_full_distortion32_bits_single_facade(&(((int32_t *)ctx->tx_coeffs->buffer_cb)[0]),
                                                              &(((int32_t *)cand_bf->rec_coeff->buffer_cb)[0]),
@@ -1948,7 +2307,9 @@ void svt_aom_full_loop_chroma_light_pd1(PictureControlSet *pcs, ModeDecisionCont
                                                                0,
                                                                cand_bf->cand->block_mi.mode,
                                                                full_lambda,
-                                                               false);
+                                                               false,
+                                                               0,
+                                                               NULL);
 
         svt_aom_picture_full_distortion32_bits_single_facade(&(((int32_t *)ctx->tx_coeffs->buffer_cr)[0]),
                                                              &(((int32_t *)cand_bf->rec_coeff->buffer_cr)[0]),
@@ -2113,7 +2474,9 @@ void svt_aom_full_loop_uv(PictureControlSet *pcs, ModeDecisionContext *ctx, Mode
                 ctx->cb_dc_sign_context,
                 cand_bf->cand->block_mi.mode,
                 full_lambda,
-                false);
+                false,
+                0,
+                NULL);
 
             if (is_full_loop && ctx->mds_do_spatial_sse) {
                 uint32_t cb_has_coeff = cand_bf->eob.u[txb_itr] > 0;
@@ -2338,7 +2701,9 @@ void svt_aom_full_loop_uv(PictureControlSet *pcs, ModeDecisionContext *ctx, Mode
                 ctx->cr_dc_sign_context,
                 cand_bf->cand->block_mi.mode,
                 full_lambda,
-                false);
+                false,
+                0,
+                NULL);
             if (is_full_loop && ctx->mds_do_spatial_sse) {
                 uint32_t cr_has_coeff = cand_bf->eob.v[txb_itr] > 0;
 

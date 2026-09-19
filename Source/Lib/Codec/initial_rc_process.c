@@ -728,6 +728,19 @@ void *svt_aom_initial_rate_control_kernel(void *input_ptr) {
                     pcs->r0_delta_qp_quant = (pcs->r0_delta_qp_md && pcs->slice_type == I_SLICE);
                 }
             }
+            if (scs->balancing_ctrls.force_r0_qps_all_layers || scs->balancing_ctrls.force_beta_all_layers) {
+                // Balancing drives QP from r0 at every temporal layer. The predicate is
+                // shared, but each field owns its own outputs so either can be set alone
+                const bool r0_all_layers = pcs->r0_gen &&
+                    (pcs->temporal_layer_index == 0 ||
+                     scs->static_config.rate_control_mode == SVT_AV1_RC_MODE_CQP_OR_CRF);
+                if (scs->balancing_ctrls.force_r0_qps_all_layers) {
+                    pcs->r0_qps            = r0_all_layers;
+                    pcs->r0_delta_qp_quant = r0_all_layers;
+                }
+                if (scs->balancing_ctrls.force_beta_all_layers)
+                    pcs->r0_delta_qp_md = r0_all_layers;
+            }
             if (in_results_ptr->task_type == TASK_SUPERRES_RE_ME) {
                 // do necessary steps as normal routine
                 {

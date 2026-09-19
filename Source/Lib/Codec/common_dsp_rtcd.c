@@ -523,6 +523,9 @@ void svt_aom_setup_common_rtcd_internal(EbCpuFlags flags) {
     SET_SSE41_AVX2_AVX512(svt_av1_inv_txfm2d_add_64x32, svt_av1_inv_txfm2d_add_64x32_c, svt_av1_highbd_inv_txfm_add_sse4_1, svt_dav1d_highbd_inv_txfm_add_avx2, svt_av1_inv_txfm2d_add_64x32_avx512);
 #endif
     SET_SSE41_AVX2_AVX512(svt_av1_inv_txfm2d_add_64x64, svt_av1_inv_txfm2d_add_64x64_c, svt_av1_inv_txfm2d_add_64x64_sse4_1, svt_dav1d_inv_txfm2d_add_64x64_avx2, svt_av1_inv_txfm2d_add_64x64_avx512);
+    // The dav1d kernels also outrun the AVX512 32x32 and 64x64 ones at full eob (measured on
+    // Zen 5), so they take every AVX2-capable machine rather than only the small-eob blocks
+    SET_AVX2(svt_av1_inv_txfm2d_add_sq_eob, svt_av1_inv_txfm2d_add_sq_eob_c, svt_dav1d_inv_txfm2d_add_sq_eob_avx2);
 
     // workaround for dav1d functions crashing valgrind's libVEX JIT compiler
     if (EB_UNLIKELY(RUNNING_ON_VALGRIND))
@@ -1088,6 +1091,7 @@ void svt_aom_setup_common_rtcd_internal(EbCpuFlags flags) {
     SET_NEON(svt_av1_inv_txfm2d_add_64x16, svt_av1_inv_txfm2d_add_64x16_c, svt_av1_inv_txfm2d_add_64x16_neon);
     SET_NEON(svt_av1_inv_txfm2d_add_64x32, svt_av1_inv_txfm2d_add_64x32_c, svt_av1_inv_txfm2d_add_64x32_neon);
     SET_NEON(svt_av1_inv_txfm2d_add_64x64, svt_av1_inv_txfm2d_add_64x64_c, svt_av1_inv_txfm2d_add_64x64_neon);
+    SET_ONLY_C(svt_av1_inv_txfm2d_add_sq_eob, svt_av1_inv_txfm2d_add_sq_eob_c);
     SET_NEON(svt_av1_inv_txfm_add, svt_av1_inv_txfm_add_c, svt_dav1d_inv_txfm_add_neon);
 
     SET_NEON(svt_compressed_packmsb, svt_compressed_packmsb_c, svt_compressed_packmsb_neon);
@@ -1644,6 +1648,7 @@ void svt_aom_setup_common_rtcd_internal(EbCpuFlags flags) {
     SET_ONLY_C(svt_av1_inv_txfm2d_add_64x16, svt_av1_inv_txfm2d_add_64x16_c);
     SET_ONLY_C(svt_av1_inv_txfm2d_add_64x32, svt_av1_inv_txfm2d_add_64x32_c);
     SET_ONLY_C(svt_av1_inv_txfm2d_add_64x64, svt_av1_inv_txfm2d_add_64x64_c);
+    SET_ONLY_C(svt_av1_inv_txfm2d_add_sq_eob, svt_av1_inv_txfm2d_add_sq_eob_c);
     SET_ONLY_C(svt_av1_inv_txfm_add, svt_av1_inv_txfm_add_c);
     SET_ONLY_C(svt_compressed_packmsb, svt_compressed_packmsb_c);
     SET_ONLY_C(svt_c_pack, svt_c_pack_c);

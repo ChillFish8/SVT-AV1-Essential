@@ -444,6 +444,39 @@ static const InvRectTxfmType1TestParam rect_type1_ref_funcs_sse4_1[20] = {
 INSTANTIATE_TEST_SUITE_P(SSE4_1, InvTxfm2dAsmType1Test,
                          ::testing::ValuesIn(rect_type1_ref_funcs_sse4_1));
 
+// The square eob entry point shares the rect eob signature, so it runs through the same
+// per-eob sweep. The reference ignores eob and runs the plain C kernels, which every eob path
+// must match exactly, including the reduced ones the dav1d kernels select for small eob
+static void inv_txfm2d_add_sq_eob_ref_c(const int32_t *input, uint16_t *output_r,
+                                        int32_t stride_r, uint16_t *output_w,
+                                        int32_t stride_w, TxType tx_type,
+                                        TxSize tx_size, int32_t eob, int32_t bd) {
+    (void)eob;
+    if (tx_size == TX_32X32)
+        svt_av1_inv_txfm2d_add_32x32_c(input, output_r, stride_r, output_w,
+                                       stride_w, tx_type, bd);
+    else
+        svt_av1_inv_txfm2d_add_64x64_c(input, output_r, stride_r, output_w,
+                                       stride_w, tx_type, bd);
+}
+
+static const InvRectTxfmType1TestParam sq_eob_ref_funcs_avx2[4] = {
+    // clang-format off
+    { inv_txfm2d_add_sq_eob_ref_c, svt_dav1d_inv_txfm2d_add_sq_eob_avx2,
+      TX_32X32, 8 },
+    { inv_txfm2d_add_sq_eob_ref_c, svt_dav1d_inv_txfm2d_add_sq_eob_avx2,
+      TX_32X32, 10 },
+    { inv_txfm2d_add_sq_eob_ref_c, svt_dav1d_inv_txfm2d_add_sq_eob_avx2,
+      TX_64X64, 8 },
+    { inv_txfm2d_add_sq_eob_ref_c, svt_dav1d_inv_txfm2d_add_sq_eob_avx2,
+      TX_64X64, 10 }
+    // clang-format on
+};
+
+INSTANTIATE_TEST_SUITE_P(dav1d_sq_eob_AVX2, InvTxfm2dAsmType1Test,
+                         ::testing::ValuesIn(sq_eob_ref_funcs_avx2));
+
+
 static const InvRectTxfmType1TestParam rect_type1_ref_funcs_avx2[20] = {
     // clang-format off
     { svt_av1_inv_txfm2d_add_8x16_c, svt_dav1d_highbd_inv_txfm_add_avx2,

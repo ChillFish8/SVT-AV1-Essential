@@ -2564,6 +2564,20 @@ void svt_av1_inv_txfm2d_add_32x32_c(const int32_t *input, uint16_t *output_r, in
     inv_txfm2d_add_facade(input, output_r, stride_r, output_w, stride_w, txfm_buf, tx_type, TX_32X32, bd);
 }
 
+// 32x32 and 64x64 with the eob passed through, so a kernel can skip the all-zero part of the
+// block. The plain kernels ignore eob, so this fallback just hands off to whichever of them the
+// platform selected, which keeps every architecture without an eob-aware kernel on its usual path
+void svt_av1_inv_txfm2d_add_sq_eob_c(const int32_t *input, uint16_t *output_r, int32_t stride_r, uint16_t *output_w,
+                                     int32_t stride_w, TxType tx_type, TxSize tx_size, int32_t eob, int32_t bd) {
+    (void)eob;
+    if (tx_size == TX_32X32)
+        svt_av1_inv_txfm2d_add_32x32(input, output_r, stride_r, output_w, stride_w, tx_type, bd);
+    else {
+        assert(tx_size == TX_64X64);
+        svt_av1_inv_txfm2d_add_64x64(input, output_r, stride_r, output_w, stride_w, tx_type, bd);
+    }
+}
+
 void svt_av1_inv_txfm2d_add_64x64_c(const int32_t *input, uint16_t *output_r, int32_t stride_r, uint16_t *output_w,
                                     int32_t stride_w, TxType tx_type, int32_t bd) {
     // Remap 32x32 input into a modified 64x64 by:
@@ -2873,8 +2887,15 @@ static void highbd_inv_txfm_add_32x32(const TranLow *input, uint8_t *dest_r, int
     switch (tx_type) {
     case DCT_DCT:
     case IDTX:
-        svt_av1_inv_txfm2d_add_32x32(
-            src, CONVERT_TO_SHORTPTR(dest_r), stride_r, CONVERT_TO_SHORTPTR(dest_w), stride_w, tx_type, bd);
+        svt_av1_inv_txfm2d_add_sq_eob(src,
+                                      CONVERT_TO_SHORTPTR(dest_r),
+                                      stride_r,
+                                      CONVERT_TO_SHORTPTR(dest_w),
+                                      stride_w,
+                                      tx_type,
+                                      TX_32X32,
+                                      txfm_param->eob,
+                                      bd);
         break;
     default: assert(0);
     }
@@ -2886,8 +2907,15 @@ static void highbd_inv_txfm_add_64x64(const TranLow *input, uint8_t *dest_r, int
     const TxType   tx_type = txfm_param->tx_type;
     const int32_t *src     = cast_to_int32(input);
     assert(tx_type == DCT_DCT);
-    svt_av1_inv_txfm2d_add_64x64(
-        src, CONVERT_TO_SHORTPTR(dest_r), stride_r, CONVERT_TO_SHORTPTR(dest_w), stride_w, tx_type, bd);
+    svt_av1_inv_txfm2d_add_sq_eob(src,
+                                  CONVERT_TO_SHORTPTR(dest_r),
+                                  stride_r,
+                                  CONVERT_TO_SHORTPTR(dest_w),
+                                  stride_w,
+                                  tx_type,
+                                  TX_64X64,
+                                  txfm_param->eob,
+                                  bd);
 }
 
 static void highbd_inv_txfm_add_4x8(const TranLow *input, uint8_t *dest_r, int32_t stride_r, uint8_t *dest_w,

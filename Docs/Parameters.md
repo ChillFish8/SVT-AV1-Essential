@@ -118,7 +118,10 @@ For more information on valid values for specific keys, refer to the [EbEncSetti
 | **VarianceOctile**               | --variance-octile                | [1-8]      | 4           | Set variance algorithm 8x8 block selectivity level [1: 1st octile, 4: median [Default], 6: 6th octile, 8: maximum]                                   |
 | **VarianceBoostCurve**           | --variance-boost-curve           | [0-3]      | 0, 3 (PQ)   | Variance Boost curve [0: default, 1: alternative, 2: still image, 3: HDR PQ transfer]                                                                |
 | **AdaptiveQuantization**         | --aq-mode                        | [0-2]      | 2           | Set adaptive QP level [0: off, 1: variance base using AV1 segments, 2: deltaq pred efficiency]                                                       |
-| **QpScaleCompressStrength**      | --qp-scale-compress-strength     | [0-8]      | 1           | Sets the QP compression strength resulting in less quality variation across frames in a mini-gop [0: off, 1: default, 8: maximum]                    |
+| **QpScaleCompressStrength**      | --qp-scale-compress-strength     | [0-8]      | 0, 1 (off)  | Sets the QP compression strength for less quality variation across frames in a mini-gop [0: off, 8: max]; derived from balancing-q-bias when unset   |
+| **BalancingQBias**               | --balancing-q-bias               | [0-1]      | 0           | Replaces the QP allocation with the balancing model, reshaping TPL r0 and per-SB beta [0: off, 1: on]                                                |
+| **BalancingR0DampeningLayer**    | --balancing-r0-dampening-layer   | [-8-8]     | -2, 1 (off) | Temporal layer at which r0 switches to its fourth root; derived from balancing-q-bias when unset                                                     |
+| **OptimizeBMode**                | --optimize-b-mode                | [0-2]      | 0           | Extra pixel-domain coefficient refinement before the trellis [0: off, 1: zbin-zeroing trial, 2: zbin-zeroing trial only, trellis disabled]           |
 | **AutoTiling**                   | --auto-tiling                    | [0-1]      | 1           | Automatically sets tiles appropriate for the source input resolution [0: off (manual), 1: on (automatic)]                                            |
 | **AcBias**                       | --ac-bias                        | [0.0-8.0]  | 0.25        | Sets the strength of the internal RD metric to bias toward high-frequency error (helps with texture preservation and film grain retention)           |
 | **SharpTX**                      | --sharp-tx                       | [0-1]      | 0           | Activation of sharp transform optimizations for higher fidelity encoding (with slightly higher chances of artifacting)                               |
@@ -607,13 +610,27 @@ The stronger the algorithm strength, the more consistent quality is from keyfram
 In exchange however, the fewer the opportunities frames can be used as references because they're relatively lower quality than the child frames. Thus, it brings down average performance in most cases (except for one case described further below).
 This parameter allows advanced users to switch between four levels of quantizer compression, compressing quantizer values across all hierarchical/temporal layers inside of a mini GOP.
 
-- **0** disables the feature.
+When left unset, the value is derived from `--balancing-q-bias`: **1** with the balancing model off, and **0** with it on, since the balancing model reshapes the hierarchical layer scale itself and is not meant to stack with this feature.
 
-- **1** is `--qp-scale-compress-strength`, conservatively reducing the QP range used by the encoder. Useful for increasing visual consistency at almost all quality levels with next to no cost, the default value.
+- **0** disables the feature, the default value with `--balancing-q-bias 1`.
+
+- **1** is `--qp-scale-compress-strength`, conservatively reducing the QP range used by the encoder. Useful for increasing visual consistency at almost all quality levels with next to no cost, the default value with `--balancing-q-bias 0`.
 
 - **2** is `--qp-scale-compress-strength`, reducing the QP range used by the encoder further. This is useful at higher quality levels where restricting the QP range across layers is more important.
 
 - **3** is `--qp-scale-compress-strength`, is the upper limit that was found useful for general-purpose (not Target Quality) encoding. This is useful at maximum fidelity expectations or when the set CRF/QP is very low. In the latter scenario, the feature can actually improve fidelity.
+
+### `--optimize-b-mode [0-2]`
+`--optimize-b-mode` runs an extra pixel-domain coefficient refinement pass (a zbin-zeroing trial) before the standard trellis quantization optimization step.
+
+- **0** disables the feature. Only the stock trellis runs, the default value.
+
+- **1** runs the zbin-zeroing trial ahead of the stock trellis. Both refinements apply to the block.
+
+- **2** runs the same zbin-zeroing trial as **1**, but the stock trellis is skipped afterwards, leaving the trial as the only refinement. This trades some compression efficiency for speed, since the trellis is a stronger optimizer than the trial pass. 
+  Expect noticeably larger files than **0** or **1** at a given CRF. Note for anyone comparing against 5fish: this configuration is upstream's mode 4, renumbered here to keep a contiguous `[0-2]` range.
+  Upstream also has its own mode 2, which is an unrelated feature (decrement + zero-out trials at the late call site with the trellis off) and is not implemented in SVT-AV1-Essential.
+  This is because there was no observed quality improvement VS simply lowering the CRF to match the added bitrate allowance.
 
 ### `--adaptive-film-grain [0,1]`
 When enabled, the `--adaptive-film-grain` parameter adaptively varies the film grain blocksize based on the resolution of the input video. This often greatly improves the consistency of film grain in the output video, reducing grain patterns.

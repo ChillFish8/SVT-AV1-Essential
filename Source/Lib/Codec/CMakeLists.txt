@@ -236,6 +236,8 @@ set(all_files
         product_coding_loop.c
         ac_bias.c
         ac_bias.h
+        optimize_b_basis.c
+        optimize_b_basis.h
         q_matrices.h
         random.h
         ransac.c

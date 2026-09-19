@@ -56,6 +56,34 @@ typedef struct QpBasedThScaling {
     bool cap_max_size_qp_based_th_scaling;
     bool var_skip_sub_depth_qp_based_th_scaling;
 } QpBasedThScaling;
+typedef struct BalancingCtrls {
+    // 0: OFF; 1: ON - master switch, every field below is 0 when this is 0
+    uint8_t enabled;
+    // Temporal layer at which r0 switches to its fourth root
+    int8_t r0_dampening_layer;
+    // 0: OFF; 1: widen is_base to cover the shorter minigops of a reduced hierarchical level
+    uint8_t widen_is_base;
+    // 0: OFF; 1: reshape the frame-level r0 and skip the outlier bypass
+    uint8_t reshape_r0;
+    // 0: OFF; 1: floor and soften the per-SB beta
+    uint8_t reshape_beta;
+    // 0: OFF; 1: map beta to delta-q via the fourth root for all frame types
+    uint8_t soft_deltaq_map;
+    // 0: OFF; 1: widen the per-SB delta-q clamp from 9*4 to 9*8
+    uint8_t wide_deltaq_clamp;
+    // 0: OFF; 1: force the r0 weight to 1.0 when hierarchical_levels <= 2
+    uint8_t flat_r0_weight_lowhier;
+    // 0: OFF; 1: drop the TPL dep cost scale from TPL_DEP_COST_SCALE_LOG2 to 1
+    uint8_t tpl_dep_cost_unscaled;
+    // 0: OFF; 1: drive frame QP and delta-q signalling from r0 at every layer
+    uint8_t force_r0_qps_all_layers;
+    // 0: OFF; 1: also apply the per-SB beta loop beyond the dampening layer
+    // Off even under balancing - Essential caps this at hierarchical_levels - 2,
+    // which is where balancing already damps r0, so widening double-counts
+    uint8_t force_beta_all_layers;
+    // 0: OFF; 1: vary the scene change threshold with the intra period position
+    uint8_t reshape_scene_change_th;
+} BalancingCtrls;
 
 // Forward declaration for block geometry
 struct BlockGeom;
@@ -244,6 +272,7 @@ typedef struct SequenceControlSet {
     uint8_t      calc_hist;
     TfControls   tf_params_per_type[3]; // [I_SLICE][BASE][L1]
     MrpCtrls     mrp_ctrls;
+    BalancingCtrls balancing_ctrls;
     /*!< The RC stat generation pass mode (0: The default, 1: optimized)*/
     uint8_t rc_stat_gen_pass_mode;
 #if TUNE_CQP_CHROMA_SSIM

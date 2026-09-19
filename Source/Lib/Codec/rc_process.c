@@ -592,12 +592,16 @@ static int get_gfu_boost_from_r0_lap(double min_factor, double max_factor, doubl
     const int boost  = (int)rint(factor / r0);
     return boost;
 }
-int svt_av1_get_deltaq_offset(EbBitDepth bit_depth, int qindex, double beta, uint8_t is_intra) {
+int svt_av1_get_deltaq_offset(EbBitDepth bit_depth, int qindex, double beta, uint8_t is_intra,
+                              uint8_t soft_deltaq_map) {
     assert(beta > 0.0);
     int q = svt_aom_dc_quant_qtx(qindex, 0, bit_depth);
     int newq;
+    // Balancing uses the same gentle curve for every frame type
+    if (soft_deltaq_map)
+        newq = (int)rint(q / sqrt(sqrt(beta)));
     // use a less aggressive action when lowering the q for non I_slice
-    if (!is_intra && beta > 1)
+    else if (!is_intra && beta > 1)
         newq = (int)rint(q / sqrt(sqrt(beta)));
     else
         newq = (int)rint(q / sqrt(beta));
@@ -929,8 +933,21 @@ static int crf_qindex_calc(PictureControlSet *pcs, RATE_CONTROL *rc, int qindex)
             (ppcs->tpl_group_size < (uint32_t)(2 << pcs->ppcs->hierarchical_levels)))
             weight = MIN(weight + 0.1, 1);
 
-        double qstep_ratio = sqrt(ppcs->r0) * weight *
-            qp_scale_compress_weight[scs->static_config.qp_scale_compress_strength];
+        if (scs->balancing_ctrls.flat_r0_weight_lowhier && scs->static_config.hierarchical_levels <= 2)
+            weight = 1.0;
+
+        // Above the dampening layer the fourth root keeps deep layers closer
+        // to the base frame's quality
+        // Dampening only applies when balancing is on. Otherwise the offset must not
+        // influence the threshold at all, even though the config field may still be set
+        double qstep_ratio;
+        const int8_t dampening_layer = scs->balancing_ctrls.enabled ? scs->balancing_ctrls.r0_dampening_layer : 0;
+        if ((int8_t)pcs->temporal_layer_index >= AOMMAX(1, (int8_t)ppcs->hierarchical_levels + dampening_layer))
+            qstep_ratio = sqrt(sqrt(ppcs->r0)) * weight *
+                qp_scale_compress_weight[scs->static_config.qp_scale_compress_strength];
+        else
+            qstep_ratio = sqrt(ppcs->r0) * weight *
+                qp_scale_compress_weight[scs->static_config.qp_scale_compress_strength];
         if (scs->static_config.qp_scale_compress_strength) {
             // clamp qstep_ratio so it doesn't get past the weight value
             qstep_ratio = MIN(weight, qstep_ratio);
@@ -1837,10 +1854,14 @@ void svt_aom_sb_qp_derivation_tpl_la(PictureControlSet *pcs) {
         for (uint32_t sb_addr = 0; sb_addr < sb_cnt; ++sb_addr) {
             SuperBlock *sb_ptr = pcs->sb_ptr_array[sb_addr];
             double      beta   = ppcs_ptr->pa_me_data->tpl_beta[sb_addr];
-            int         offset = svt_av1_get_deltaq_offset(
-                scs->static_config.encoder_bit_depth, sb_ptr->qindex, beta, pcs->ppcs->slice_type == I_SLICE);
-            offset = AOMMIN(offset, 9 * 4 - 1);
-            offset = AOMMAX(offset, -9 * 4 + 1);
+            int         offset      = svt_av1_get_deltaq_offset(scs->static_config.encoder_bit_depth,
+                                                                sb_ptr->qindex,
+                                                                beta,
+                                                                pcs->ppcs->slice_type == I_SLICE,
+                                                                scs->balancing_ctrls.soft_deltaq_map);
+            const int   clamp_range = scs->balancing_ctrls.wide_deltaq_clamp ? 9 * 8 : 9 * 4;
+            offset                  = AOMMIN(offset, clamp_range - 1);
+            offset                  = AOMMAX(offset, -clamp_range + 1);
 
 #if DEBUG_VAR_BOOST_STATS
             SVT_DEBUG("%4d ", -offset);

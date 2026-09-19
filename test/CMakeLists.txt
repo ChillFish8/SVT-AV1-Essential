@@ -99,6 +99,8 @@ set(multi_arch_files
     PackUnPackTest.cc
     PaletteModeUtilTest.cc
     PictureOperatorTest.cc
+    OptimizeBBasisTest.cc
+    QmSatdTest.cc
     QuantAsmTest.cc
     ResidualTest.cc
     RestorationPickTest.cc

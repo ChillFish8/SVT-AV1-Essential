@@ -867,12 +867,30 @@ EbErrorType svt_av1_verify_settings(SequenceControlSet *scs) {
         return_error = EB_ErrorBadParameter;
     }
 
+    if (config->balancing_q_bias > 1) {
+        SVT_ERROR("Balancing q bias must be 0 or 1\n");
+        return_error = EB_ErrorBadParameter;
+    }
+
+    if (config->optimize_b_mode > 2) {
+        SVT_ERROR("Optimize b mode must be 0, 1 or 2\n");
+        return_error = EB_ErrorBadParameter;
+    }
+
+    // INT8_MIN is the unset sentinel resolved later based on balancing-q-bias
+    if (config->balancing_r0_dampening_layer != INT8_MIN &&
+        (config->balancing_r0_dampening_layer < -8 || config->balancing_r0_dampening_layer > 8)) {
+        SVT_ERROR("Balancing r0 dampening layer must be between -8 and 8\n");
+        return_error = EB_ErrorBadParameter;
+    }
+
     if (config->sharpness > 7 || config->sharpness < -7) {
         SVT_ERROR("Sharpness level must be between -7 and 7\n");
         return_error = EB_ErrorBadParameter;
     }
 
-    if (config->qp_scale_compress_strength > 8) {
+    // UINT8_MAX is the unset sentinel resolved later based on balancing-q-bias
+    if (config->qp_scale_compress_strength != UINT8_MAX && config->qp_scale_compress_strength > 8) {
         SVT_ERROR("QP scale compress strength must be between 0 and 8\n");
         return_error = EB_ErrorBadParameter;
     }
@@ -1088,7 +1106,10 @@ EbErrorType svt_av1_set_default_params(EbSvtAv1EncConfiguration *config_ptr) {
     config_ptr->sharpness                         = 1;
     config_ptr->lossless                          = false;
     config_ptr->avif                              = false;
-    config_ptr->qp_scale_compress_strength        = 1;
+    config_ptr->qp_scale_compress_strength        = UINT8_MAX;
+    config_ptr->balancing_q_bias                  = 0;
+    config_ptr->balancing_r0_dampening_layer      = INT8_MIN;
+    config_ptr->optimize_b_mode                   = 0;
     config_ptr->sframe_posi.sframe_num            = 0;
     config_ptr->sframe_posi.sframe_posis          = NULL;
     config_ptr->sframe_posi.sframe_qp_num         = 0;
@@ -1495,6 +1516,12 @@ void svt_av1_print_lib_params(SequenceControlSet *scs) {
         }
 
         SVT_INFO("SVT [config]: QP scale compress strength \t\t\t\t: %d\n", config->qp_scale_compress_strength);
+
+        if (config->balancing_q_bias) {
+            SVT_INFO("SVT [config]: balancing q bias / r0 dampening layer \t\t: %d / %d\n",
+                     config->balancing_q_bias,
+                     config->balancing_r0_dampening_layer);
+        }
 
         if (config->ac_bias || config->tx_bias) {
             SVT_INFO("SVT [config]: AC Bias strength / TX Bias / sharp TX optimization \t: %.2f / %s / %d\n",
@@ -2655,6 +2682,8 @@ EB_API EbErrorType svt_av1_enc_parse_parameter(EbSvtAv1EncConfiguration *config_
         {"variance-octile", &config_struct->variance_octile},
         {"variance-boost-curve", &config_struct->variance_boost_curve},
         {"qp-scale-compress-strength", &config_struct->qp_scale_compress_strength},
+        {"balancing-q-bias", &config_struct->balancing_q_bias},
+        {"optimize-b-mode", &config_struct->optimize_b_mode},
         {"fast-decode", &config_struct->fast_decode},
         {"luminance-qp-bias", &config_struct->luminance_qp_bias},
         {"enable-tf", &config_struct->enable_tf},
@@ -2753,6 +2782,7 @@ EB_API EbErrorType svt_av1_enc_parse_parameter(EbSvtAv1EncConfiguration *config_
         const char *name;
         int8_t     *out;
     } int8_opts[] = {
+        {"balancing-r0-dampening-layer", &config_struct->balancing_r0_dampening_layer},
         {"preset", &config_struct->enc_mode},
         {"sharpness", &config_struct->sharpness},
         {"startup-qp-offset", &config_struct->startup_qp_offset},

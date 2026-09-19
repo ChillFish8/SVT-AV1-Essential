@@ -954,9 +954,20 @@ typedef struct EbSvtAv1EncConfiguration {
     * 0: no compression, original SVT-AV1 scaling
     * 1-8: enable compression, the higher the number the stronger the compression
     *      (different frame quality fluctuation/mean quality tradeoffs)
-    * Default is 1
+    * UINT8_MAX: derive from balancing_q_bias
+    * Default is 1 with balancing_q_bias off, 0 with it on
     */
     uint8_t qp_scale_compress_strength;
+
+    // Replaces the QP allocation with the balancing model
+    // 0: OFF; 1: ON
+    uint8_t balancing_q_bias;
+    // Temporal layer at which r0 switches to its fourth root
+    // INT8_MIN: derive from balancing_q_bias
+    int8_t balancing_r0_dampening_layer;
+    // Extra pixel-domain coefficient refinement before the trellis
+    // 0: OFF; 1: zbin-zeroing trial before the trellis; 2: applies mode 1 as well as disables the trellis
+    uint8_t optimize_b_mode;
 
     /* @brief Indicates where to insert an S-Frame, only available when sframe_mode is SFRAME_FLEXIBLE_ARF */
     SvtAv1SFramePositions sframe_posi;

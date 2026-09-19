@@ -719,6 +719,18 @@ static void tf_set_me_hme_params_oq(MeContext *me_ctx, PictureParentControlSet *
     }
 };
 /******************************************************
+ * svt_aom_get_is_base
+ * Derive whether the picture is a base-layer picture.
+ * Balancing widens the definition to cover the shorter
+ * minigops produced by a reduced hierarchical level
+ ******************************************************/
+uint8_t svt_aom_get_is_base(const PictureParentControlSet *ppcs, const SequenceControlSet *scs) {
+    if (!scs->balancing_ctrls.widen_is_base)
+        return ppcs->temporal_layer_index == 0;
+    return (ppcs->temporal_layer_index + scs->static_config.hierarchical_levels - ppcs->hierarchical_levels) == 0 ||
+        ppcs->slice_type == I_SLICE;
+}
+/******************************************************
 * Derive ME Settings for OQ
   Input   : encoder mode and tune
   Output  : ME Kernel signal(s)
@@ -729,7 +741,7 @@ void svt_aom_sig_deriv_me(SequenceControlSet *scs, PictureParentControlSet *pcs,
     const uint8_t     sc_class4        = pcs->sc_class4;
     EbInputResolution input_resolution = scs->input_resolution;
     const bool        rtc_tune         = scs->static_config.rtc;
-    const bool        is_base          = pcs->temporal_layer_index == 0;
+    const bool        is_base          = svt_aom_get_is_base(pcs, scs);
     const bool        flat_rtc         = rtc_tune && scs->use_flat_ipp;
     // Set ME search area
     set_me_search_params(scs, pcs, me_ctx, input_resolution);
@@ -930,7 +942,7 @@ void svt_aom_sig_deriv_me_tf(PictureParentControlSet *pcs, MeContext *me_ctx) {
 };
 static void set_cdef_search_controls(PictureParentControlSet *pcs, uint8_t cdef_search_level) {
     CdefSearchControls *cdef_ctrls           = &pcs->cdef_search_ctrls;
-    const bool          is_base              = pcs->temporal_layer_index == 0;
+    const bool          is_base              = svt_aom_get_is_base(pcs, pcs->scs);
     const bool          is_not_highest_layer = !pcs->is_highest_layer;
     int                 i, j, sf_idx, second_pass_fs_num;
     switch (cdef_search_level) {
@@ -1720,7 +1732,7 @@ void svt_aom_sig_deriv_multi_processes(SequenceControlSet *scs, PictureParentCon
     FrameHeader            *frm_hdr           = &pcs->frm_hdr;
     EncMode                 enc_mode          = pcs->enc_mode;
     const uint8_t           is_islice         = pcs->slice_type == I_SLICE;
-    const uint8_t           is_base           = pcs->temporal_layer_index == 0;
+    const uint8_t           is_base           = svt_aom_get_is_base(pcs, scs);
     const EbInputResolution input_resolution  = pcs->input_resolution;
     const uint8_t           fast_decode       = scs->static_config.fast_decode;
     const bool              rtc_tune          = scs->static_config.rtc;
@@ -2297,6 +2309,22 @@ void svt_aom_sig_deriv_pre_analysis_scs(SequenceControlSet *scs) {
         scs->seq_header.cdef_level = (uint8_t)(scs->static_config.cdef_level > 0);
 
     scs->seq_header.enable_warped_motion = 1;
+
+    // Balancing replaces the QP allocation completely, so every behaviour
+    // it couples is named separately to keep them individually bisectable
+    BalancingCtrls *balancing_ctrls              = &scs->balancing_ctrls;
+    balancing_ctrls->enabled                     = scs->static_config.balancing_q_bias;
+    balancing_ctrls->r0_dampening_layer          = scs->static_config.balancing_r0_dampening_layer;
+    balancing_ctrls->widen_is_base               = balancing_ctrls->enabled;
+    balancing_ctrls->reshape_r0                  = balancing_ctrls->enabled;
+    balancing_ctrls->reshape_beta                = balancing_ctrls->enabled;
+    balancing_ctrls->soft_deltaq_map             = balancing_ctrls->enabled;
+    balancing_ctrls->wide_deltaq_clamp           = balancing_ctrls->enabled;
+    balancing_ctrls->flat_r0_weight_lowhier      = balancing_ctrls->enabled;
+    balancing_ctrls->tpl_dep_cost_unscaled       = balancing_ctrls->enabled;
+    balancing_ctrls->force_r0_qps_all_layers     = balancing_ctrls->enabled;
+    balancing_ctrls->force_beta_all_layers       = 0;
+    balancing_ctrls->reshape_scene_change_th     = balancing_ctrls->enabled;
 }
 /*
 * check if the reference picture is in same frame size
@@ -6704,6 +6732,7 @@ void svt_aom_sig_deriv_enc_dec_light_pd1(PictureControlSet *pcs, ModeDecisionCon
             rdoq_level = MAX(rdoq_level, pcs->rdoq_level);
     }
     set_rdoq_controls(ctx, rdoq_level);
+    ctx->active_optimize_b_mode = pcs->scs->static_config.optimize_b_mode;
     uint8_t me_subpel_level = 0;
     if (lpd1_level <= LPD1_LVL_0)
         if ((rtc_tune && !use_flat_ipp && enc_mode <= ENC_M10) || (rtc_tune && use_flat_ipp && enc_mode <= ENC_M11) ||
@@ -6923,6 +6952,7 @@ void svt_aom_sig_deriv_enc_dec(SequenceControlSet *scs, PictureControlSet *pcs, 
         rdoq_level = pcs->rdoq_level;
 
     set_rdoq_controls(ctx, rdoq_level);
+    ctx->active_optimize_b_mode = pcs->scs->static_config.optimize_b_mode;
     // There are only redundant blocks when HVA_HVB shapes are used
     if (pd_pass == PD_PASS_0 || !ctx->nsq_geom_ctrls.allow_HVA_HVB)
         ctx->redundant_blk = false;
@@ -7199,7 +7229,7 @@ uint8_t svt_aom_get_nsq_search_level(PictureControlSet *pcs, EncMode enc_mode, I
             }
         }
     } else if (enc_mode <= ENC_M0) {
-        const uint8_t is_base = pcs->ppcs->temporal_layer_index == 0;
+        const uint8_t is_base = svt_aom_get_is_base(pcs->ppcs, pcs->scs);
         nsq_search_level      = is_base ? 2 : 3;
     } else if (enc_mode <= ENC_M2) {
         nsq_search_level = 7;
@@ -7392,7 +7422,7 @@ set lpd0_level
 static void set_pic_lpd0_lvl(PictureControlSet *pcs, EncMode enc_mode) {
     PictureParentControlSet *ppcs = pcs->ppcs;
 
-    const uint8_t           is_base            = ppcs->temporal_layer_index == 0;
+    const uint8_t           is_base            = svt_aom_get_is_base(ppcs, pcs->scs);
     const uint8_t           is_islice          = pcs->slice_type == I_SLICE;
     const bool              transition_present = (ppcs->transition_present == 1);
     const uint8_t           sc_class1          = ppcs->sc_class1;
@@ -7620,7 +7650,7 @@ uint8_t svt_aom_get_obmc_level(EncMode enc_mode, uint32_t qp, uint8_t seq_qp_mod
 
 static void mfmv_controls(PictureControlSet *pcs, uint8_t mfmv_level) {
     PictureParentControlSet *ppcs    = pcs->ppcs;
-    const uint8_t            is_base = ppcs->temporal_layer_index == 0;
+    const uint8_t            is_base = svt_aom_get_is_base(ppcs, ppcs->scs);
     double                   r0_th   = 0;
     ppcs->frm_hdr.use_ref_frame_mvs  = 0;
     switch (mfmv_level) {
@@ -7653,7 +7683,7 @@ void svt_aom_sig_deriv_mode_decision_config(SequenceControlSet *scs, PictureCont
     PictureParentControlSet *ppcs                = pcs->ppcs;
     EncMode                  enc_mode            = pcs->enc_mode;
     const uint8_t            is_ref              = ppcs->is_ref;
-    const uint8_t            is_base             = ppcs->temporal_layer_index == 0;
+    const uint8_t            is_base             = svt_aom_get_is_base(ppcs, scs);
     const uint8_t            is_layer1           = ppcs->temporal_layer_index == 1;
     const EbInputResolution  input_resolution    = ppcs->input_resolution;
     const uint8_t            is_islice           = pcs->slice_type == I_SLICE;
@@ -8404,13 +8434,8 @@ void svt_aom_sig_deriv_mode_decision_config(SequenceControlSet *scs, PictureCont
             // use dlf_mode as if were being set for 3 presets lower
             dlf_enc_mode = AOMMAX(ENC_MR, enc_mode - 3);
         }
-        dlf_level = get_dlf_level(pcs,
-                                  dlf_enc_mode,
-                                  is_not_last_layer,
-                                  fast_decode,
-                                  input_resolution,
-                                  allintra,
-                                  (pcs->temporal_layer_index == 0));
+        dlf_level = get_dlf_level(
+            pcs, dlf_enc_mode, is_not_last_layer, fast_decode, input_resolution, allintra, is_base);
     }
     svt_aom_set_dlf_controls(pcs->ppcs, dlf_level);
 }

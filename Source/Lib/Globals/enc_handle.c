@@ -19,6 +19,7 @@
 #include <stdio.h>
 #include <stdint.h>
 
+#include "optimize_b_basis.h"
 #include "EbVersion.h"
 #include "svt_threads.h"
 #include "utility.h"
@@ -1274,6 +1275,7 @@ static ONCE_ROUTINE(init_global_tables) {
     init_fn_ptr();
     svt_av1_init_wedge_masks();
     init_ii_masks();
+    svt_aom_optimize_b_basis_init();
     ONCE_ROUTINE_EPILOG;
 }
 DEFINE_ONCE(global_tables_once);
@@ -3989,6 +3991,26 @@ static void set_param_based_on_input(SequenceControlSet *scs)
         scs->bot_padding   += 4;
     }
 
+    if (scs->static_config.balancing_r0_dampening_layer == INT8_MIN) {
+        if (scs->static_config.balancing_q_bias)
+            scs->static_config.balancing_r0_dampening_layer = -2;
+        else
+            scs->static_config.balancing_r0_dampening_layer = 1;
+    }
+
+    // Balancing reshapes the layer scale itself, so the compression is left out of the derived default
+    const bool qp_scale_compress_strength_set = scs->static_config.qp_scale_compress_strength != UINT8_MAX;
+    if (!qp_scale_compress_strength_set) {
+        if (scs->static_config.balancing_q_bias)
+            scs->static_config.qp_scale_compress_strength = 0;
+        else
+            scs->static_config.qp_scale_compress_strength = 1;
+    }
+
+    // Balancing replaces this, it is not meant to stack with it
+    if (scs->static_config.balancing_q_bias && qp_scale_compress_strength_set &&
+        scs->static_config.qp_scale_compress_strength)
+        SVT_WARN("balancing-q-bias is intended to replace qp-scale-compress-strength, not to be used with it\n");
 
     scs->static_config.enable_overlays = !scs->static_config.enable_tf ||
         (scs->static_config.rate_control_mode != SVT_AV1_RC_MODE_CQP_OR_CRF) ?
@@ -4570,6 +4592,11 @@ static void copy_api_from_app(SequenceControlSet *scs, EbSvtAv1EncConfiguration 
 
     // QP scaling compression
     scs->static_config.qp_scale_compress_strength = config_struct->qp_scale_compress_strength;
+
+    // Balancing model
+    scs->static_config.balancing_q_bias             = config_struct->balancing_q_bias;
+    scs->static_config.balancing_r0_dampening_layer = config_struct->balancing_r0_dampening_layer;
+    scs->static_config.optimize_b_mode              = config_struct->optimize_b_mode;
 
     // Adaptive film grain
     scs->static_config.adaptive_film_grain = config_struct->adaptive_film_grain;
