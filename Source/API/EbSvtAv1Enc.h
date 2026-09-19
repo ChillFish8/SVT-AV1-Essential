@@ -917,6 +917,14 @@ typedef struct EbSvtAv1EncConfiguration {
      *  Default is 0 */
     uint8_t dark_boost_strength;
 
+    /* @brief Taper Variance Boost on bright superblocks, where smooth artwork gains nothing from the boost
+     * Scales the Variance Boost qstep ratio toward 1 as mean luma rises above 112. Requires Variance Boost
+     * Not applied on the PQ curve. Only ever reduces bitrate, and leaves dark content untouched
+     *  0: off
+     *  1-4: increasing attenuation
+     *  Default is 0 */
+    uint8_t variance_bright_attenuation;
+
     /* @brief Frame-level luminance-based QP bias to improve quality in low luma scenarios
      * Works by adjusting frame-level QP based on average luminance across a frame
      *  0: Disable luminance-based QP bias

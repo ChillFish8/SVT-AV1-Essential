@@ -3870,6 +3870,10 @@ static void set_param_based_on_input(SequenceControlSet *scs)
         scs->static_config.dark_boost_strength = 0;
         SVT_WARN("Dark boost requires Variance Boost, disabling dark boost\n");
     }
+    if (scs->static_config.variance_bright_attenuation && !scs->static_config.enable_variance_boost) {
+        scs->static_config.variance_bright_attenuation = 0;
+        SVT_WARN("Bright attenuation requires Variance Boost, disabling bright attenuation\n");
+    }
     if (scs->static_config.cdef_level != 0 && scs->static_config.alt_cdef > 1 && !(scs->static_config.pred_structure == LOW_DELAY)) {
         SVT_WARN("CDEF level is set to 1, or full CDEF decision, when alt-cdef is >= 2\n");
         scs->static_config.cdef_level = 1;
@@ -4585,6 +4589,7 @@ static void copy_api_from_app(SequenceControlSet *scs, EbSvtAv1EncConfiguration 
 #endif
     scs->static_config.variance_boost_curve = config_struct->variance_boost_curve;
     scs->static_config.dark_boost_strength = config_struct->dark_boost_strength;
+    scs->static_config.variance_bright_attenuation = config_struct->variance_bright_attenuation;
 
     // Temporal filtering strength
     scs->static_config.tf_strength = config_struct->tf_strength;

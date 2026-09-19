@@ -79,6 +79,15 @@ is 0.35, 0.7, 1.05 or 1.4 for strengths 1 to 4, before the usual clipping and co
 
 The feature is off by default, requires Variance Boost, and is not applied on curve 3.
 
+### `--variance-bright-attenuation [0-4]`
+
+An attenuation of the Variance Boost for superblocks that are bright. A luma weight is computed per superblock that is 1 at or below an 8-bit mean luma of 112 and falls to 0 at 144.
+The Variance Boost qstep ratio is rescaled as `(ratio - 1) * (floor + (1 - floor) * luma_weight) + 1`, where the floor is 0.7, 0.5, 0.3 or 0.15 for strengths 1 to 4, before the usual clipping and conversion to a qindex offset.
+Because the rescale is anchored at 1, a superblock that was receiving no boost is unaffected, and the term can never increase the ratio.
+Superblocks whose 64x64 variance exceeds 4000 are skipped entirely: these span both dark and bright areas, so their mean luma does not describe them and attenuating on it would take bits from the dark part.
+
+The feature is off by default, requires Variance Boost, and is not applied on curve 3.
+
 ## Description of the Algorithm
 
 |Image|Description|
@@ -89,6 +98,7 @@ The feature is off by default, requires Variance Boost, and is not applied on cu
 |![ord](./img/vb_rock_sb_var_ord.png)| 4. In `av1_get_deltaq_sb_variance_boost()`, these values are then ranked from lowest to highest variance. Then, three of these values are picked and averaged in a 1:2:1 ratio; in this case, octiles 3, 4, and 5 (i.e. the values at the end of the 3rd, 4th, and 5th row highlighted in magenta). |
 |![strength](./img/vb_strength.png)  | 5. This value is plugged into one of the four boost formulas, which then outputs a delta-q offset. More aggressive curves result in bigger offsets and thus bigger resulting adjustments. Quantization index boosts can range from 0 (for high variance areas) to 80 (for very low variance areas). |
 |                                    | 5a. With `--dark-boost-strength` set, the qstep ratio from step 5 is additionally multiplied by a factor that grows for superblocks that are both dark (low mean luma) and low in contrast (low weighted variance), and that falls back to 1 when every 8x8 in the superblock is flat, before clipping. |
+|                                    | 5b. With `--variance-bright-attenuation` set, the qstep ratio from step 5 is scaled back toward 1 in proportion to how bright the superblock is, before clipping. |
 |![enc](./img/vb_rock_sb_enc.png)    | 6. Finally, the offset is applied to the superblock's qindex and the same process is repeated for the remaining superblocks. Once complete, other parts of the encoding process can run. |
 
 ## References
