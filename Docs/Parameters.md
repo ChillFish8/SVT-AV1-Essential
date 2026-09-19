@@ -653,6 +653,7 @@ Adaptive film grain is disabled by default.
 ### `--dark-boost-strength [0-4]`
 `--dark-boost-strength` adds an extra, luma-weighted boost on top of Variance Boost for superblocks that are both dark and low in contrast, the regions where thin line art a few code values above a near-black fill is otherwise quantized away.
 The boost is applied through the same per-superblock delta-q path as Variance Boost, so the encoder's rate-distortion decisions follow it as well as the quantizer step.
+Superblocks that are a solid fill are excluded, so a black title or credits card does not pay for the feature; a superblock needs some detail in it, however faint, before the boost applies.
 It requires Variance Boost to be enabled and is not applied on the PQ curve (`--variance-boost-curve 3`), which carries its own dark-region handling.
 HDR PQ content selects curve 3 automatically, so the flag has no effect on such content whether or not the curve was set by hand.
 Expect higher filesizes on dark scenes at a given CRF; bright and high-contrast regions are unaffected.

@@ -1579,12 +1579,16 @@ int variance_comp_double(const void *a, const void *b) {
 #define VAR_BOOST_MAX_DELTAQ_RANGE 80
 #define VAR_BOOST_MAX_QSTEP_RATIO_BOOST 8
 
-// Dark boost weights: full weight at or below the MIN bound, none at or above the MAX bound
+// Dark boost weights: the luma and contrast ramps give full weight at or below their MIN bound and none at
+// or above their MAX bound; the detail ramp runs the other way, so it is off on a solid fill
 // Luma bounds are 8-bit mean luma at the fixed-point scale of ppcs->mean (x256)
+// Detail bounds are the superblock's busiest 8x8 variance, before the weighted value's floor to 1
 #define DARK_BOOST_LUMA_MIN (64 * 256)
 #define DARK_BOOST_LUMA_MAX (112 * 256)
 #define DARK_BOOST_VAR_MIN 16
 #define DARK_BOOST_VAR_MAX 64
+#define DARK_BOOST_DETAIL_MIN 0.5
+#define DARK_BOOST_DETAIL_MAX 2.0
 
 #define SUPERBLOCK_SIZE 64
 #define SUBBLOCK_SIZE 8
@@ -1696,14 +1700,20 @@ static int av1_get_deltaq_sb_variance_boost(uint8_t base_q_idx, uint64_t mean, d
     }
 
     // Dark boost: widen the boost for dark, low-contrast superblocks, where thin line art is quantized away
-    // Both weights are linear ramps; the PQ curve keeps its own dark attenuation instead
+    // A solid fill trips the same luma and contrast weights but has no line art to protect, so gate on the
+    // busiest 8x8 as well
+    // All three weights are linear ramps; the PQ curve keeps its own dark attenuation instead
     if (dark_strength && curve != 3) {
         assert(dark_strength <= 4);
         const double luma_w = CLIP3(
             0.0, 1.0, ((double)DARK_BOOST_LUMA_MAX - (double)mean) / (DARK_BOOST_LUMA_MAX - DARK_BOOST_LUMA_MIN));
         const double contrast_w = CLIP3(
             0.0, 1.0, (DARK_BOOST_VAR_MAX - variance) / (DARK_BOOST_VAR_MAX - DARK_BOOST_VAR_MIN));
-        qstep_ratio *= 1 + dark_strengths[dark_strength] * luma_w * contrast_w;
+        const double detail_w = CLIP3(0.0,
+                                      1.0,
+                                      (ordered_variances[SUBBLOCKS_IN_SB - 1] - DARK_BOOST_DETAIL_MIN) /
+                                          (DARK_BOOST_DETAIL_MAX - DARK_BOOST_DETAIL_MIN));
+        qstep_ratio *= 1 + dark_strengths[dark_strength] * luma_w * contrast_w * detail_w;
     }
 
     if (curve == 3) {
