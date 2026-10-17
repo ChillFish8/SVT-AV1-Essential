@@ -1111,6 +1111,15 @@ typedef struct EbSvtAv1EncConfiguration {
     uint8_t complex_hvs;
 
     /**
+     * @brief QM-weighted transform distortion
+     * -1: automatic, on for tune IQ
+     * 0: PSNR
+     * 1: QM-PSNR
+     * Default is -1
+     */
+    int8_t enable_qmpsnr;
+
+    /**
      * @brief Controls noise detection for CDEF/restoration filtering
      * 0: off
      * 1: always-on noise-adaptive filters

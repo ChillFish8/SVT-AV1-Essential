@@ -940,6 +940,11 @@ EbErrorType svt_av1_verify_settings(SequenceControlSet *scs) {
         return_error = EB_ErrorBadParameter;
     }
 
+    if (config->enable_qmpsnr < -1 || config->enable_qmpsnr > 1) {
+        SVT_ERROR("Enable-qmpsnr must be -1 (automatic), 0 or 1\n");
+        return_error = EB_ErrorBadParameter;
+    }
+
     if (config->noise_adaptive_filtering > 4) {
         SVT_ERROR("noise-adaptive-filtering must be between 0 and 4\n");
         return_error = EB_ErrorBadParameter;
@@ -1145,6 +1150,7 @@ EbErrorType svt_av1_set_default_params(EbSvtAv1EncConfiguration *config_ptr) {
     config_ptr->sharp_tx                          = 0;
     config_ptr->tx_bias                           = 0;
     config_ptr->complex_hvs                       = 0;
+    config_ptr->enable_qmpsnr                     = -1;
     config_ptr->noise_adaptive_filtering          = 2;
     config_ptr->alt_cdef                          = 0;
     config_ptr->alt_dlf                           = 0;
@@ -1557,10 +1563,11 @@ void svt_av1_print_lib_params(SequenceControlSet *scs) {
             config->noise_adaptive_filtering == 4 ? "Restoration only (4)" :
                                                     "unknown");
         
-        if (config->complex_hvs == 1 || config->distortion_bias_preset != 0) {
-            SVT_INFO("SVT [config]: highest complexity HVS model / distortion bias preset \t: %d / %d\n",
+        if (config->complex_hvs == 1 || config->distortion_bias_preset != 0 || config->enable_qmpsnr) {
+            SVT_INFO("SVT [config]: highest complexity HVS model / distortion bias preset / QM-PSNR \t: %d / %d / %d\n",
                      config->complex_hvs,
-                     config->distortion_bias_preset);
+                     config->distortion_bias_preset,
+                     config->enable_qmpsnr);
         }
 
         if (config->cdef_level != 0 && config->alt_cdef) {
@@ -2804,6 +2811,7 @@ EB_API EbErrorType svt_av1_enc_parse_parameter(EbSvtAv1EncConfiguration *config_
         {"preset", &config_struct->enc_mode},
         {"sharpness", &config_struct->sharpness},
         {"startup-qp-offset", &config_struct->startup_qp_offset},
+        {"enable-qmpsnr", &config_struct->enable_qmpsnr},
     };
     const size_t int8_opts_size = sizeof(int8_opts) / sizeof(int8_opts[0]);
 

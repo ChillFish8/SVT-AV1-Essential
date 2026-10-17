@@ -234,6 +234,7 @@
 #define SHARP_TX_TOKEN "--sharp-tx"
 #define TX_BIAS_TOKEN "--tx-bias"
 #define COMPLEX_HVS_TOKEN "--complex-hvs"
+#define ENABLE_QMPSNR_TOKEN "--enable-qmpsnr"
 #define NOISE_ADAPTIVE_FILTERING_TOKEN "--noise-adaptive-filtering"
 #define ALT_CDEF_TOKEN "--enable-alt-cdef"
 #define ALT_DLF_TOKEN "--enable-alt-dlf"
@@ -1332,6 +1333,7 @@ ConfigDescription fconfig_entry_psychovisual[] = {
      "Transform size/type bias type, default is 0 [0-3]; 1 = full, 2, transform size only, 3 = interpolation only"},
     // Complex HVS
     {COMPLEX_HVS_TOKEN, "Enable highest complexity HVS model, default is 0 [0-1]"},
+    {ENABLE_QMPSNR_TOKEN, "QM-weighted distortion, default is -1 [-1: on for tune IQ, 0: PSNR, 1: QM-PSNR]"},
     // Noise adaptive filtering
     {NOISE_ADAPTIVE_FILTERING_TOKEN,
      "Controls noise detection which disables CDEF/restoration when noise level is high enough [0: off, 1: on (for both CDEF and restoration), "
@@ -1592,6 +1594,7 @@ ConfigEntry config_entry[] = {
     {TX_BIAS_TOKEN, "TxBias", set_cfg_generic_token},
     // Complex HVS
     {COMPLEX_HVS_TOKEN, "ComplexHVS", set_cfg_generic_token},
+    {ENABLE_QMPSNR_TOKEN, "EnableQMPSNR", set_cfg_generic_token},
     // Noise adaptive filtering
     {NOISE_ADAPTIVE_FILTERING_TOKEN, "NoiseAdaptiveFiltering", set_cfg_generic_token},
     // Alt CDEF & DLF
