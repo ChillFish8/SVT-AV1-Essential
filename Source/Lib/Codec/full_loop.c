@@ -10,6 +10,7 @@
 * PATENTS file, you can obtain it at https://www.aomedia.org/license/patent-license.
 */
 
+#include "qm_psnr.h"
 #include "definitions.h"
 #include "full_loop.h"
 #include "pcs.h"
@@ -642,8 +643,21 @@ static INLINE int get_coeff_cost_general(int is_last, int ci, TranLow abs_qc, in
     }
     return cost;
 }
-static INLINE int64_t get_coeff_dist(TranLow tcoeff, TranLow dqcoeff, int shift) {
-    return SQR(((int64_t)tcoeff - dqcoeff) * (int64_t)(1lu << shift));
+bool svt_use_qmpsnr(PictureControlSet *pcs, ModeDecisionContext *ctx, int plane, bool tx_search) {
+    const QuantizationParams *quant = &pcs->ppcs->frm_hdr.quantization_params;
+    // Inter mode/partition/SKIP decisions retain their spatial distortion scale
+    // QM weighting still selects transforms and optimizes their coefficients
+    // A flat channel keeps the existing PSNR path, including spatial SSE and its shortcuts
+    return (pcs->scs->allintra || tx_search) && pcs->scs->static_config.enable_qmpsnr && quant->using_qmatrix &&
+        quant->qm[plane] < NUM_QM_LEVELS - 1 && !svt_av1_is_lossless_segment(pcs, ctx->blk_ptr->segment_id);
+}
+const QmVal *svt_get_qmpsnr_matrix(PictureControlSet *pcs, ModeDecisionContext *ctx, TxSize tx_size, TxType tx_type,
+                                   int plane, bool tx_search) {
+    if (!svt_use_qmpsnr(pcs, ctx, plane, tx_search) || !IS_2D_TRANSFORM(tx_type)) {
+        return NULL;
+    }
+    const int level = pcs->ppcs->frm_hdr.quantization_params.qm[plane];
+    return pcs->ppcs->gqmatrix[level][plane][av1_get_adjusted_tx_size(tx_size)];
 }
 static INLINE void get_qc_dqc_low(TranLow abs_qc, int sign, int dqv, int shift, TranLow *qc_low, TranLow *dqc_low) {
     TranLow abs_qc_low = abs_qc - 1;
@@ -732,7 +746,8 @@ static AOM_FORCE_INLINE void update_coeff_eob(int *accu_rate, int64_t *accu_dist
                                               int dc_sign_ctx, int64_t rdmult, int shift, const int16_t *dequant,
                                               const int16_t *scan, const LvMapEobCost *txb_eob_costs,
                                               const LvMapCoeffCost *txb_costs, const TranLow *tcoeff, TranLow *qcoeff,
-                                              TranLow *dqcoeff, uint8_t *levels, int sharpness, const QmVal *iqm_ptr) {
+                                              TranLow *dqcoeff, uint8_t *levels, int sharpness, const QmVal *iqm_ptr,
+                                              const QmVal *qm) {
     assert(si != *eob - 1);
     const int     ci        = scan[si];
     const int     dqv       = get_dqv(dequant, ci, iqm_ptr);
@@ -746,8 +761,8 @@ static AOM_FORCE_INLINE void update_coeff_eob(int *accu_rate, int64_t *accu_dist
         const TranLow tqc         = tcoeff[ci];
         const TranLow dqc         = dqcoeff[ci];
         const int     sign        = (qc < 0) ? 1 : 0;
-        const int64_t dist0       = get_coeff_dist(tqc, 0, shift);
-        int64_t       dist        = get_coeff_dist(tqc, dqc, shift) - dist0;
+        const int64_t dist0       = svt_qm_coeff_dist(tqc, 0, shift, qm, ci);
+        int64_t       dist        = svt_qm_coeff_dist(tqc, dqc, shift, qm, ci) - dist0;
         int           rate        = get_coeff_cost_general(
             0, ci, abs_qc, sign, coeff_ctx, dc_sign_ctx, txb_costs, bwl, tx_class, levels);
         int64_t rd = RDCOST(rdmult, *accu_rate + rate, *accu_dist + dist);
@@ -765,7 +780,7 @@ static AOM_FORCE_INLINE void update_coeff_eob(int *accu_rate, int64_t *accu_dist
         } else {
             get_qc_dqc_low(abs_qc, sign, dqv, shift, &qc_low, &dqc_low);
             abs_qc_low = abs_qc - 1;
-            dist_low   = get_coeff_dist(tqc, dqc_low, shift) - dist0;
+            dist_low   = svt_qm_coeff_dist(tqc, dqc_low, shift, qm, ci) - dist0;
             rate_low   = get_coeff_cost_general(
                 0, ci, abs_qc_low, sign, coeff_ctx, dc_sign_ctx, txb_costs, bwl, tx_class, levels);
             rd_low = RDCOST(rdmult, *accu_rate + rate_low, *accu_dist + dist_low);
@@ -832,7 +847,7 @@ static INLINE void update_coeff_general(int *accu_rate, int64_t *accu_dist, int 
                                         TxClass tx_class, int bwl, int height, int64_t rdmult, int shift,
                                         int dc_sign_ctx, const int16_t *dequant, const int16_t *scan,
                                         const LvMapCoeffCost *txb_costs, const TranLow *tcoeff, TranLow *qcoeff,
-                                        TranLow *dqcoeff, uint8_t *levels, const QmVal *iqm_ptr) {
+                                        TranLow *dqcoeff, uint8_t *levels, const QmVal *iqm_ptr, const QmVal *qm) {
     const int     ci        = scan[si];
     const int     dqv       = get_dqv(dequant, ci, iqm_ptr);
     const TranLow qc        = qcoeff[ci];
@@ -845,8 +860,8 @@ static INLINE void update_coeff_general(int *accu_rate, int64_t *accu_dist, int 
         const TranLow abs_qc = abs(qc);
         const TranLow tqc    = tcoeff[ci];
         const TranLow dqc    = dqcoeff[ci];
-        const int64_t dist   = get_coeff_dist(tqc, dqc, shift);
-        const int64_t dist0  = get_coeff_dist(tqc, 0, shift);
+        const int64_t dist   = svt_qm_coeff_dist(tqc, dqc, shift, qm, ci);
+        const int64_t dist0  = svt_qm_coeff_dist(tqc, 0, shift, qm, ci);
         const int     rate   = get_coeff_cost_general(
             is_last, ci, abs_qc, sign, coeff_ctx, dc_sign_ctx, txb_costs, bwl, tx_class, levels);
         const int64_t rd = RDCOST(rdmult, rate, dist);
@@ -862,7 +877,7 @@ static INLINE void update_coeff_general(int *accu_rate, int64_t *accu_dist, int 
         } else {
             get_qc_dqc_low(abs_qc, sign, dqv, shift, &qc_low, &dqc_low);
             abs_qc_low = abs_qc - 1;
-            dist_low   = get_coeff_dist(tqc, dqc_low, shift);
+            dist_low   = svt_qm_coeff_dist(tqc, dqc_low, shift, qm, ci);
             rate_low   = get_coeff_cost_general(
                 is_last, ci, abs_qc_low, sign, coeff_ctx, dc_sign_ctx, txb_costs, bwl, tx_class, levels);
         }
@@ -885,7 +900,7 @@ static AOM_FORCE_INLINE void update_coeff_simple(int *accu_rate, int si, int eob
                                                  int bwl, int64_t rdmult, int shift, const int16_t *dequant,
                                                  const int16_t *scan, const LvMapCoeffCost *txb_costs,
                                                  const TranLow *tcoeff, TranLow *qcoeff, TranLow *dqcoeff,
-                                                 uint8_t *levels, const QmVal *iqm_ptr) {
+                                                 uint8_t *levels, const QmVal *iqm_ptr, const QmVal *qm) {
     const int dqv = get_dqv(dequant, scan[si], iqm_ptr);
     (void)eob;
     // this simple version assumes the coeff's scan_idx is not DC (scan_idx != 0)
@@ -908,12 +923,12 @@ static AOM_FORCE_INLINE void update_coeff_simple(int *accu_rate, int si, int eob
             return;
         }
 
-        const int64_t dist = get_coeff_dist(abs_tqc, abs_dqc, shift);
+        const int64_t dist = svt_qm_coeff_dist(abs_tqc, abs_dqc, shift, qm, ci);
         const int64_t rd   = RDCOST(rdmult, rate, dist);
 
         const TranLow abs_qc_low  = abs_qc - 1;
         const TranLow abs_dqc_low = (abs_qc_low * dqv) >> shift;
-        const int64_t dist_low    = get_coeff_dist(abs_tqc, abs_dqc_low, shift);
+        const int64_t dist_low    = svt_qm_coeff_dist(abs_tqc, abs_dqc_low, shift, qm, ci);
         const int64_t rd_low      = RDCOST(rdmult, rate_low, dist_low);
 
         if (rd_low < rd) {
@@ -1020,6 +1035,7 @@ static void svt_av1_optimize_b(PictureControlSet *pcs, ModeDecisionContext *ctx,
                                TxSize tx_size, TxType tx_type, bool is_inter, uint8_t use_sharpness,
                                uint8_t delta_q_present, uint8_t picture_qp, uint32_t lambda, int plane,
                                bool light_rdoq) {
+    const QmVal           *qm         = pcs->scs->static_config.enable_qmpsnr ? qparam->qmatrix : NULL;
     SequenceControlSet    *scs        = pcs->scs;
     bool                   allintra   = scs->allintra;
     bool                   rtc        = scs->static_config.rtc;
@@ -1116,7 +1132,8 @@ static void svt_av1_optimize_b(PictureControlSet *pcs, ModeDecisionContext *ctx,
                              qcoeff_ptr,
                              dqcoeff_ptr,
                              levels,
-                             qparam->iqmatrix);
+                             qparam->iqmatrix,
+                             qm);
         --si;
     } else {
         assert(abs_qc == 1);
@@ -1125,8 +1142,8 @@ static void svt_av1_optimize_b(PictureControlSet *pcs, ModeDecisionContext *ctx,
 
         const TranLow tqc   = coeff_ptr[ci];
         const TranLow dqc   = dqcoeff_ptr[ci];
-        const int64_t dist  = get_coeff_dist(tqc, dqc, shift);
-        const int64_t dist0 = get_coeff_dist(tqc, 0, shift);
+        const int64_t dist  = svt_qm_coeff_dist(tqc, dqc, shift, qm, ci);
+        const int64_t dist0 = svt_qm_coeff_dist(tqc, 0, shift, qm, ci);
         accu_dist += dist - dist0;
         --si;
     }
@@ -1156,7 +1173,8 @@ static void svt_av1_optimize_b(PictureControlSet *pcs, ModeDecisionContext *ctx,
                              dqcoeff_ptr,                             \
                              levels,                                  \
                              sharpness,                               \
-                             qparam->iqmatrix);                       \
+                             qparam->iqmatrix,                        \
+                             qm);                                     \
         }                                                             \
         break;
     switch (tx_class) {
@@ -1204,7 +1222,8 @@ static void svt_av1_optimize_b(PictureControlSet *pcs, ModeDecisionContext *ctx,
                                 qcoeff_ptr,        \
                                 dqcoeff_ptr,       \
                                 levels,            \
-                                qparam->iqmatrix); \
+                                qparam->iqmatrix,  \
+                                qm);               \
         }                                          \
         break;
     switch (tx_class) {
@@ -1237,7 +1256,8 @@ static void svt_av1_optimize_b(PictureControlSet *pcs, ModeDecisionContext *ctx,
                              qcoeff_ptr,
                              dqcoeff_ptr,
                              levels,
-                             qparam->iqmatrix);
+                             qparam->iqmatrix,
+                             qm);
     }
 }
 

@@ -239,6 +239,7 @@ set(all_files
         optimize_b_basis.c
         optimize_b_basis.h
         q_matrices.h
+        qm_psnr.h
         random.h
         ransac.c
         ransac.h
