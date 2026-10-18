@@ -2253,7 +2253,9 @@ void svt_aom_full_loop_chroma_light_pd1(PictureControlSet *pcs, ModeDecisionCont
                                                              true, // is_chroma
                                                              pcs->temporal_layer_index,
                                                              pcs->scs->static_config.ac_bias,
-                                                             pcs->scs->static_config.tx_bias);
+                                                             pcs->scs->static_config.tx_bias,
+                                                             NULL,
+                                                             NULL);
 
         cb_full_distortion[DIST_CALC_RESIDUAL]   = RIGHT_SIGNED_SHIFT(cb_full_distortion[DIST_CALC_RESIDUAL],
                                                                     chroma_shift);
@@ -2344,7 +2346,9 @@ void svt_aom_full_loop_chroma_light_pd1(PictureControlSet *pcs, ModeDecisionCont
                                                              true, // is_chroma
                                                              pcs->temporal_layer_index,
                                                              pcs->scs->static_config.ac_bias,
-                                                             pcs->scs->static_config.tx_bias);
+                                                             pcs->scs->static_config.tx_bias,
+                                                             NULL,
+                                                             NULL);
 
         cr_full_distortion[DIST_CALC_RESIDUAL]   = RIGHT_SIGNED_SHIFT(cr_full_distortion[DIST_CALC_RESIDUAL],
                                                                     chroma_shift);
@@ -2649,7 +2653,9 @@ void svt_aom_full_loop_uv(PictureControlSet *pcs, ModeDecisionContext *ctx, Mode
                     true, // is_chroma
                     pcs->temporal_layer_index,
                     pcs->scs->static_config.ac_bias,
-                    pcs->scs->static_config.tx_bias);
+                    pcs->scs->static_config.tx_bias,
+                    NULL,
+                    NULL);
 
                 TxSize        tx_size      = ctx->blk_geom->txsize_uv[tx_depth];
                 const int32_t chroma_shift = (MAX_TX_SCALE - av1_get_tx_scale_tab[tx_size]) * 2;
@@ -2874,7 +2880,9 @@ void svt_aom_full_loop_uv(PictureControlSet *pcs, ModeDecisionContext *ctx, Mode
                     true, // is_chroma
                     pcs->temporal_layer_index,
                     pcs->scs->static_config.ac_bias,
-                    pcs->scs->static_config.tx_bias);
+                    pcs->scs->static_config.tx_bias,
+                    NULL,
+                    NULL);
 
                 TxSize        tx_size      = ctx->blk_geom->txsize_uv[tx_depth];
                 const int32_t chroma_shift = (MAX_TX_SCALE - av1_get_tx_scale_tab[tx_size]) * 2;
