@@ -3870,6 +3870,9 @@ static void set_param_based_on_input(SequenceControlSet *scs)
         scs->static_config.variance_dark_boost = 0;
         SVT_WARN("Dark boost requires Variance Boost, disabling dark boost\n");
     }
+    if (scs->static_config.enable_qmpsnr && scs->static_config.optimize_b_mode == 2) {
+        SVT_WARN("Optimize-b-mode 2 disables the stock trellis, so QM-PSNR weights distortion but not coefficient optimization\n");
+    }
     if (scs->static_config.variance_bright_attenuation && !scs->static_config.enable_variance_boost) {
         scs->static_config.variance_bright_attenuation = 0;
         SVT_WARN("Bright attenuation requires Variance Boost, disabling bright attenuation\n");
@@ -4719,6 +4722,10 @@ static void copy_api_from_app(SequenceControlSet *scs, EbSvtAv1EncConfiguration 
         scs->static_config.ac_bias = 4.0;
         /**/
     }
+
+    // Resolve the metric after tune selection, preserving an explicit disable
+    scs->static_config.enable_qmpsnr = config_struct->enable_qmpsnr == -1 ? scs->static_config.tune == TUNE_IQ
+                                                                          : config_struct->enable_qmpsnr;
 
     // Override settings for Still IQ tune
     if (scs->static_config.tune == TUNE_IQ) {
